@@ -24,7 +24,7 @@ export const Heatmap = ({
 }: HeatmapProps) => {
 	let startDate: Date | null = null;
 	let endDate: Date | null = null;
-	const weeksToShow = heatmapConfig.numberOfWeeks || 20;
+	const weeksToShow = heatmapConfig.numberOfWeeks || 52;
 	const baseDate = heatmapConfig.startDate
 		? new Date(heatmapConfig.startDate)
 		: undefined;
