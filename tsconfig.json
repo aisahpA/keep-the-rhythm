@@ -1,5 +1,6 @@
 {
 	"compilerOptions": {
+		"baseUrl": ".",
 		"resolveJsonModule": true,
 		"jsx": "react",
 		"inlineSourceMap": true,
@@ -11,7 +12,7 @@
 		"noImplicitAny": true,
 		"allowSyntheticDefaultImports": true,
 		"esModuleInterop": true,
-		"moduleResolution": "bundler",
+		"moduleResolution": "node",
 		"importHelpers": true,
 		"paths": {
 			"@/*": ["./src/*"]
