@@ -28,7 +28,7 @@ export const HeatmapCell = ({
 	mode,
 	squared,
 }: HeatmapCellProps) => {
-	const handleClick = async (event: React.MouseEvent<HTMLDivElement>) => {
+	const handleClick = async (_event: React.MouseEvent<HTMLDivElement>) => {
 		if (!state.plugin.data.settings.heatmapNavigation) return;
 
 		const dailyNotesSettings = getCorePluginSettings("daily-notes");

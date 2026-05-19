@@ -2,8 +2,6 @@ import { ItemView, WorkspaceLeaf } from "obsidian";
 import KeepTheRhythm from "../../main";
 import * as React from "react";
 import { createRoot, Root } from "react-dom/client";
-import { IntensityConfig } from "@/defs/types";
-import { formatDate } from "@/utils/dateUtils";
 import { KTRView } from "../components/SidebarView";
 
 export const VIEW_TYPE = "keep-the-rhythm";
