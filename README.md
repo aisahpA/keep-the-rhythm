@@ -16,6 +16,7 @@ Keep the Rhythm is an Obsidian plugin that helps you maintain a consistent writi
 
 - **Embedded Components**: Insert heatmaps, slots, and entries widgets into any note using custom code blocks
 - **Advanced Filtering**: Filter your writing statistics with the query syntax for specific folders or file patterns
+- **Tracking Scope**: Restrict all tracking to a subset of the vault by listing folders (see [Tracking Scope](#tracking-scope))
 
 - **Multi-device Sync**: Syncs and merges statistics across different devices
 
@@ -54,6 +55,26 @@ Set and track your daily writing goals:
 3. View your current streak in the sidebar or through embedded slots
 
 > You can force the plugin to check previous dates when you change your writing goal by using the command `Check streak`
+
+### Tracking Scope
+
+By default Keep the Rhythm tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
+
+Add one folder at a time: type the folder path (e.g. `20-research`) into the input and click **Add** (or press Enter). Each added folder shows up as a row with a trash button; click the trash button to remove it.
+
+Matching rules:
+
+- A file is tracked when its path equals one of the configured folders or starts with `<folder>/`.
+- `20-research` matches `20-research/notes.md` and `20-research/sub/deep.md`, but **not** `20-research-backup/notes.md` (boundary respected).
+- Nested folders are supported: `20-research/notes` only tracks files under `20-research/notes/`.
+- An empty list tracks the whole vault (default behaviour).
+
+When the list is non-empty, the following behaviour changes:
+
+- Edits to files outside the scope are ignored (no `dailyActivity` entry is created)
+- Files outside the scope are excluded from the `WHOLE_VAULT` count
+- Renaming a file out of the scope removes its historical activity
+- The heatmap, streak, daily goal, and sidebar slots all reflect only the in-scope files
 
 ### Heatmap Customization
 

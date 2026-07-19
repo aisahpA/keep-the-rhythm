@@ -1,7 +1,7 @@
 import { getByPath, setByPath } from "./SettingsTab";
 import { SettingItem } from "./SettingSchema";
 import { updateVisibility } from "./SettingsTab";
-import { Setting } from "obsidian";
+import { Notice, Setting, TextComponent } from "obsidian";
 import { ColorConfig, HeatmapColorModes, Language } from "@/defs/types";
 import { DEFAULT_SETTINGS } from "@/defs/types";
 import { ConfirmationModal } from "./ConfirmationModal";
@@ -243,4 +243,100 @@ export function createBackupFolderPathSetting(
         await state.plugin.updateAndSaveEverything();
       });
   });
+}
+
+// ------------------------
+// Tracked folders (tracking scope)
+// ------------------------
+export function createTrackedFoldersSetting(
+  setting: Setting,
+  config: SettingItem,
+): void {
+  const wrapper = setting.settingEl.parentElement;
+  if (!wrapper) return;
+
+  let textComponent: TextComponent | null = null;
+
+  setting.addText((text) => {
+    textComponent = text;
+    text.setPlaceholder(config.placeholder || "folder/path");
+    text.inputEl.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        void addFolder();
+      }
+    });
+  });
+
+  setting.addButton((btn) => {
+    btn.setButtonText("Add").setTooltip("Add folder").onClick(() => {
+      void addFolder();
+    });
+  });
+
+  const listContainer = wrapper.createDiv({
+    cls: "ktr-tracked-folders-list",
+  });
+
+  function invalidateVaultCountCache() {
+    if (state.plugin.data.stats) {
+      state.plugin.data.stats.wholeVaultWordCount = undefined;
+      state.plugin.data.stats.wholeVaultCharCount = undefined;
+    }
+  }
+
+  async function addFolder() {
+    if (!textComponent) return;
+    const raw = textComponent.getValue();
+    const normalized = raw.trim().replace(/^\/+|\/+$/g, "");
+    if (!normalized) return;
+
+    const folders = state.plugin.data.settings.trackedFolders || [];
+    if (folders.includes(normalized)) {
+      new Notice("This folder is already in the tracking scope.");
+      return;
+    }
+
+    state.plugin.data.settings.trackedFolders = [...folders, normalized];
+    invalidateVaultCountCache();
+    textComponent.setValue("");
+    await state.plugin.updateAndSaveEverything();
+    renderList();
+  }
+
+  async function removeFolder(index: number) {
+    const folders = state.plugin.data.settings.trackedFolders || [];
+    state.plugin.data.settings.trackedFolders = folders.filter(
+      (_, i) => i !== index,
+    );
+    invalidateVaultCountCache();
+    await state.plugin.updateAndSaveEverything();
+    renderList();
+  }
+
+  function renderList() {
+    listContainer.empty();
+    const folders = state.plugin.data.settings.trackedFolders || [];
+
+    if (folders.length === 0) {
+      listContainer.createEl("div", {
+        text: "No folders configured — tracking the whole vault.",
+        cls: "ktr-tracked-folders-empty",
+      });
+      return;
+    }
+
+    folders.forEach((folder, index) => {
+      new Setting(listContainer)
+        .setName(folder)
+        .addButton((deleteBtn) => {
+          deleteBtn
+            .setIcon("trash")
+            .setTooltip("Remove")
+            .onClick(() => void removeFolder(index));
+        });
+    });
+  }
+
+  renderList();
 }

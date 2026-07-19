@@ -36,6 +36,14 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
           description: "Amount of words you intend to write on a day.",
           placeholder: "500",
         },
+        {
+          key: "trackedFolders",
+          type: "custom",
+          title: "Tracked Folders",
+          description:
+            "Only track files under these folders. Add one folder per click. Leave empty to track the whole vault.",
+          placeholder: "e.g. 20-research",
+        },
       ],
     },
     {

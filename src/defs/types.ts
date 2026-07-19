@@ -66,7 +66,12 @@ export enum HeatmapColorModes {
 export interface Settings {
 	dailyWritingGoal: number; // created as setting, not used anywhere yet
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
-	globalFilter?: string; // not used yet
+	/**
+	 * Optional list of folder path prefixes. When non-empty, only files whose
+	 * path equals one of these prefixes or starts with `<prefix>/` are
+	 * tracked. Leave empty to track the whole vault (default behaviour).
+	 */
+	trackedFolders?: string[];
 	startOfTheWeek: "MONDAY" | "SUNDAY"; // not used yet, should be used to offset start of the week calculations and heatmap
 	heatmapConfig: HeatmapConfig;
 	heatmapNavigation: boolean;
@@ -140,6 +145,7 @@ export interface HeatmapConfig {
 export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
+	trackedFolders: [],
 	startOfTheWeek: "SUNDAY",
 	heatmapNavigation: true,
 	heatmapConfig: {

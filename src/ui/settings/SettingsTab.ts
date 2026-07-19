@@ -10,6 +10,7 @@ import {
   createColorModeSettings,
   createThresholdSettings,
   createBackupFolderPathSetting,
+  createTrackedFoldersSetting,
 } from "./CustomSettings";
 
 export class SettingsTab extends PluginSettingTab {
@@ -146,6 +147,10 @@ export class SettingsTab extends PluginSettingTab {
         }
         if (config.key == "backupConfig.folderPath") {
           createBackupFolderPathSetting(setting, config);
+          break;
+        }
+        if (config.key == "trackedFolders") {
+          createTrackedFoldersSetting(setting, config);
           break;
         }
     }

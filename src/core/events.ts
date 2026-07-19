@@ -12,6 +12,7 @@ import { floorMomentToFive } from "@/utils/dateUtils";
 import { moment as _moment } from "obsidian";
 import { emit } from "process";
 import { getExistingOrCreateNewEntry, sumBothTimeEntries } from "@/utils/utils";
+import { isPathTracked } from "./pathFilter";
 
 const moment = _moment as unknown as typeof _moment.default;
 
@@ -31,6 +32,12 @@ export async function handleEditorChange(
   const file = info.file;
 
   if (!file || file.extension !== "md") {
+    return;
+  }
+
+  // Respect the global tracking-scope filter: ignore edits to files outside
+  // the configured folders so they don't pollute daily stats or streaks.
+  if (!isPathTracked(file.path)) {
     return;
   }
 
@@ -135,6 +142,10 @@ export async function handleFileOpen(file: TFile) {
   if (!file || file.extension !== "md") {
     return;
   }
+  // Don't create activity entries for files outside the tracking scope.
+  if (!isPathTracked(file.path)) {
+    return;
+  }
   state.isUpdatingActivity = true;
 
   /** Return if the file "opened" is the same that was seen last time. */
@@ -236,6 +247,10 @@ export async function handleFileDelete(file: TFile) {
   if (!file || file.extension !== "md") {
     return;
   }
+  // Ignore deletes for files outside the tracking scope.
+  if (!isPathTracked(file.path)) {
+    return;
+  }
   //FUTURE: correct file delta is only calculated if the user opens the file first
   // if he doesnt there is no daily activity to get the current file count and it will not consider that into the calculations
   try {
@@ -316,6 +331,14 @@ export function handleFileCreate(file: TFile) {}
  */
 export async function handleFileRename(file: TFile, oldPath: string) {
   try {
+    // If the new path falls outside the tracking scope, drop any historical
+    // activity for the old path instead of carrying it over.
+    if (!isPathTracked(file.path)) {
+      await getDB().dailyActivity.where("filePath").equals(oldPath).delete();
+      state.emit(EVENTS.REFRESH_EVERYTHING);
+      return;
+    }
+
     await getDB()
       .dailyActivity.where("filePath")
       .equals(oldPath)

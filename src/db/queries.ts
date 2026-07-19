@@ -14,6 +14,7 @@ import { sumTimeEntries } from "@/utils/utils";
 import { DailyActivity } from "./types";
 import { moment as _moment, debounce, Notice, Vault } from "obsidian";
 import { getFileWordAndCharCount } from "@/utils/utils";
+import { isPathTracked } from "@/core/pathFilter";
 
 const moment = _moment as unknown as typeof _moment.default;
 
@@ -208,7 +209,9 @@ export async function getWholeVaultCount(
 			return 0;
 		}
 		// expensive!
-		const files = vault.getMarkdownFiles();
+		const files = vault
+			.getMarkdownFiles()
+			.filter((f) => isPathTracked(f.path));
 		let wordSum = 0;
 		let charSum = 0;
 
