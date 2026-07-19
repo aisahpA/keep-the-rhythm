@@ -115,7 +115,13 @@ async function processEditorChange(
    * Only happens if the user is editing stuff really really fast, some of those inputs might be ignored at the start.
    * But I think it's okay, there might just be a slight mismatch because of wordCountStart if the file wasn't seen today
    * */
-  if (!activity || activity?.filePath !== info.file.path) {
+  if (
+    !activity ||
+    activity?.filePath !== info.file.path ||
+    activity?.date !== state.today
+  ) {
+    // Re-sync the activity when it's missing, points at a different file, or
+    // is stale after a midnight rollover (Obsidian left open across days).
     // If handleFileOpen is not running (some weird focusing states), make it run and update the activity
     if (!state.isUpdatingActivity) {
       await handleFileOpen(info.file);
@@ -219,8 +225,13 @@ export async function handleFileOpen(file: TFile) {
   }
   state.isUpdatingActivity = true;
 
-  /** Return if the file "opened" is the same that was seen last time. */
-  if (file.path == state.currentActivity?.filePath) {
+  /** Return if the file "opened" is the same that was seen last time
+   *  AND its activity still belongs to the current day. After a midnight
+   *  rollover we must fall through to rebuild today's entry. */
+  if (
+    file.path == state.currentActivity?.filePath &&
+    state.currentActivity?.date === state.today
+  ) {
     return;
   }
 
