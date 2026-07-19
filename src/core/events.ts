@@ -20,6 +20,24 @@ let dbUpdateTimeout: NodeJS.Timeout | null = null;
 const DEBOUNCE_TIME = 100; // ms
 
 /**
+ * Debounce window for sampling the editor content. Instead of running a
+ * full-document word count on every keystroke, we wait until the user
+ * stops typing for this long before reading the editor and computing
+ * deltas. The final numbers stay accurate because `changes` are cumulative
+ * deltas; only the live sidebar slot may lag by a couple of seconds.
+ *
+ * No maxWait is applied: continuous typing simply keeps deferring the
+ * sample until the next natural pause. Pending samples are flushed on
+ * file switch and on unload so no deltas are lost.
+ */
+const EDITOR_CHANGE_SAMPLE_DELAY = 2000; // ms
+
+let editorChangeTimer: NodeJS.Timeout | null = null;
+let pendingEditor: Editor | null = null;
+let pendingInfo: any = null;
+let pendingPlugin: KeepTheRhythm | null = null;
+
+/**
  * @function handleEditorChange
  * Fires everytime the user makes an input inside a Markdown editor;
  * Is not fired when focused file changes (file-open)
@@ -41,6 +59,55 @@ export async function handleEditorChange(
     return;
   }
 
+  // Stash the latest references and re-schedule the sample. Repeated
+  // keystrokes within the delay window keep cancelling the timer, so only
+  // the most recent editor state is sampled.
+  pendingEditor = editor;
+  pendingInfo = info;
+  pendingPlugin = plugin;
+
+  if (editorChangeTimer) clearTimeout(editorChangeTimer);
+  editorChangeTimer = setTimeout(() => {
+    editorChangeTimer = null;
+    void runPendingEditorChange();
+  }, EDITOR_CHANGE_SAMPLE_DELAY);
+}
+
+/**
+ * Immediately processes any pending debounced editor-change sample.
+ * Awaits completion so callers (file-open, unload) can be sure the previous
+ * file's deltas have been recorded before switching context.
+ */
+export async function flushPendingEditorChange(): Promise<void> {
+  if (!editorChangeTimer) return;
+  clearTimeout(editorChangeTimer);
+  editorChangeTimer = null;
+  await runPendingEditorChange();
+}
+
+async function runPendingEditorChange(): Promise<void> {
+  const editor = pendingEditor;
+  const info = pendingInfo;
+  const plugin = pendingPlugin;
+  pendingEditor = null;
+  pendingInfo = null;
+  pendingPlugin = null;
+  if (!editor || !info || !plugin) return;
+  await processEditorChange(editor, info, plugin);
+}
+
+/**
+ * @function processEditorChange
+ * Reads the current editor content, computes word/char deltas against the
+ * activity's running totals, and records them into the active 5-minute
+ * time slot. Called from the debounce timer (via handleEditorChange) or
+ * synchronously flushed on file switch / unload.
+ */
+async function processEditorChange(
+  editor: Editor,
+  info: any,
+  plugin: KeepTheRhythm,
+) {
   let activity = state.currentActivity;
 
   /**
@@ -139,6 +206,10 @@ export async function handleEditorChange(
  */
 
 export async function handleFileOpen(file: TFile) {
+  // Flush any pending sample for the previous file before switching
+  // context, otherwise its deltas could be recorded against the new file.
+  await flushPendingEditorChange();
+
   if (!file || file.extension !== "md") {
     return;
   }
@@ -213,6 +284,16 @@ async function flushChangesToDB(activity: DailyActivity) {
  * Clears timeouts and flushed any data on memory to the DB
  */
 export function cleanDBTimeout() {
+  // Flush any pending editor-change sample so the final deltas land in the
+  // activity before we flush it to the DB. Fire-and-forget: unload cannot
+  // await, but processEditorChange only mutates in-memory state which the
+  // following flushChangesToDB will then persist.
+  if (editorChangeTimer) {
+    clearTimeout(editorChangeTimer);
+    editorChangeTimer = null;
+    void runPendingEditorChange();
+  }
+
   if (dbUpdateTimeout) {
     clearTimeout(dbUpdateTimeout);
   }
