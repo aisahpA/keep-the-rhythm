@@ -70,6 +70,13 @@ export class PluginState {
     this.emit(EVENTS.REFRESH_EVERYTHING);
   }
 
+  checkDayChange() {
+    const today = formatDate(new Date());
+    if (today !== this._today) {
+      this.setToday();
+    }
+  }
+
   /****************************************************************************************/
 
   /**

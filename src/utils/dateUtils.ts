@@ -52,19 +52,6 @@ export function getDateBasedOnIndex(index: number) {
   return monday.clone().add(index, "days").format("YYYY-MM-DD");
 }
 
-export function scheduleNextDayTrigger(onDayChange: () => void): number {
-  const now = window.moment();
-  const nextDay = now.clone().add(1, "day").startOf("day");
-
-  const msUntilNextDay = nextDay.diff(now);
-
-  return window.setTimeout(() => {
-    onDayChange();
-    // Schedule the next day automatically
-    scheduleNextDayTrigger(onDayChange);
-  }, msUntilNextDay);
-}
-
 export function getCurrentTimeKey() {
   return floorMomentToFive(moment()).format("HH:mm");
 }
