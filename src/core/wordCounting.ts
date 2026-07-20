@@ -14,10 +14,15 @@ const UNICODE_RANGES = {
 	NUMERIC: "0-9",
 } as const;
 
+const WS_RE = /\s+/g;
+
+let cachedRegex: RegExp | null = null;
+let cachedLangKey: string | null = null;
+
 export function getWordCount(text: string, regex: RegExp): number {
 	if (!text?.trim()) return 0;
 
-	text = text.replace(/\s+/g, " ").trim();
+	text = text.replace(WS_RE, " ").trim();
 
 	try {
 		return (text.match(regex) || []).length;
@@ -60,6 +65,10 @@ export function getLanguageBasedWordCount(
 	text: string,
 	enabledLanguages: Language[],
 ) {
-	const regex: RegExp = createRegex(enabledLanguages);
-	return getWordCount(text, regex);
+	const key = enabledLanguages.join(",");
+	if (cachedLangKey !== key) {
+		cachedRegex = createRegex(enabledLanguages);
+		cachedLangKey = key;
+	}
+	return getWordCount(text, cachedRegex!);
 }
