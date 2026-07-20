@@ -1,5 +1,3 @@
-import { TimeEntry } from "./types";
-import { getCurrentTimeKey } from "@/utils/dateUtils";
 import { getDateStreaks } from "@/utils/utils";
 import { getDB } from "./db";
 import { Language, Unit, TargetCount, CalculationType } from "../defs/types";
@@ -64,41 +62,9 @@ export async function getTotalValueInDateRange(
 	return value;
 }
 
-export async function getWordAndCharCountByTimeKey(date: string) {
-	const activities = await getDB()
-		.dailyActivity.where("date")
-		.equals(date)
-		.toArray();
-
-	const timeKeyTotals: {
-		[timeKey: string]: { totalWords: number; totalChars: number };
-	} = {};
-
-	for (const activity of activities) {
-		for (const [timeKey, change] of Object.entries(activity.changes)) {
-			if (!timeKeyTotals[timeKey]) {
-				timeKeyTotals[timeKey] = { totalWords: 0, totalChars: 0 };
-			}
-			timeKeyTotals[timeKey].totalWords += change.w;
-			timeKeyTotals[timeKey].totalChars += change.c;
-		}
-	}
-
-	const result = Object.entries(timeKeyTotals)
-		.map(([timeKey, { totalWords, totalChars }]) => ({
-			timeKey,
-			totalWords,
-			totalChars,
-		}))
-		.sort((a, b) => a.timeKey.localeCompare(b.timeKey));
-
-	return result;
-}
-
 export async function removeDuplicatedDailyEntries() {
 	const allEntries = await getDB().dailyActivity.toArray();
 
-	// Create a map to track unique entries by date+filePath
 	const uniqueEntries = new Map();
 	const duplicateIds = [];
 
@@ -109,15 +75,8 @@ export async function removeDuplicatedDailyEntries() {
 			uniqueEntries.set(key, entry);
 		} else {
 			const existingEntry = uniqueEntries.get(key);
-
-			for (const [key, change] of Object.entries(entry.changes)) {
-				if (existingEntry.changes[key]) {
-					existingEntry.changes[key].w += change.w;
-					existingEntry.changes[key].c += change.c;
-				} else {
-					existingEntry.changes[key] = { ...change };
-				}
-			}
+			existingEntry.wordsAdded = (existingEntry.wordsAdded || 0) + (entry.wordsAdded || 0);
+			existingEntry.charsAdded = (existingEntry.charsAdded || 0) + (entry.charsAdded || 0);
 
 			if (entry.id !== undefined) {
 				duplicateIds.push(entry.id);
@@ -125,16 +84,15 @@ export async function removeDuplicatedDailyEntries() {
 		}
 	}
 
-	// Update all the merged entries
 	for (const entry of uniqueEntries.values()) {
 		if (entry.id !== undefined) {
 			await getDB().dailyActivity.update(entry.id, {
-				changes: entry.changes,
+				wordsAdded: entry.wordsAdded,
+				charsAdded: entry.charsAdded,
 			});
 		}
 	}
 
-	// Delete all duplicates
 	if (duplicateIds.length > 0) {
 		await getDB().dailyActivity.bulkDelete(duplicateIds);
 	}
@@ -176,19 +134,19 @@ export function sumLast24Hours(
 	unit: Unit,
 	now: Date = new Date(),
 ): number {
-	const cutoff = moment(now).subtract(24, "hours");
+	const cutoff = moment(now).subtract(24, "hours").format("YYYY-MM-DD");
 
 	let total = 0;
 
 	for (const activity of activities) {
-		if (!activity.changes) continue;
-
-		for (const entry of activity.changes) {
-			const fullDateTime = moment(`${activity.date}T${entry.timeKey}`);
-
-			if (fullDateTime.isValid() && fullDateTime.isAfter(cutoff)) {
-				total += unit === Unit.WORD ? entry.w : entry.c;
-			}
+		// Only include activities from dates within the last 24 hours.
+		// Since we no longer store per-time-slot data, we approximate by
+		// checking if the activity's date falls on or after the cutoff date.
+		if (activity.date >= cutoff) {
+			total +=
+				unit === Unit.WORD
+					? activity.wordsAdded || 0
+					: activity.charsAdded || 0;
 		}
 	}
 
@@ -372,40 +330,11 @@ export async function addDeltaToActivity(
 	wordsDelta: number,
 	charsDelta: number,
 ) {
-	const currentTimeKey = getCurrentTimeKey();
-
 	await getDB()
 		.dailyActivity.where("[date+filePath]")
 		.equals([dailyActivity.date, dailyActivity.filePath])
 		.modify((selectedEntry) => {
-			const lastTimeEntry =
-				selectedEntry.changes[selectedEntry.changes.length - 1];
-			const lastTimeKey = lastTimeEntry?.timeKey; // If there is no last key, a new one is gonna be created anyway
-
-			// If timekey is updated (snaps to last 5min)
-			// Then we just add the delta to it
-			// Otherwise create new entry
-
-			if (lastTimeKey == currentTimeKey) {
-				const existingIndex = selectedEntry.changes.findIndex(
-					(e) => e.timeKey === lastTimeKey,
-				);
-
-				// add the recieved delta to the existing delta
-				selectedEntry.changes[existingIndex] = {
-					timeKey: lastTimeKey,
-					w: wordsDelta + lastTimeEntry.w,
-					c: charsDelta + lastTimeEntry.c,
-				};
-			}
-			if (lastTimeKey !== currentTimeKey) {
-				const newEntry: TimeEntry = {
-					timeKey: currentTimeKey,
-					w: wordsDelta,
-					c: charsDelta,
-				};
-
-				selectedEntry.changes.push(newEntry);
-			}
+			selectedEntry.wordsAdded = (selectedEntry.wordsAdded || 0) + wordsDelta;
+			selectedEntry.charsAdded = (selectedEntry.charsAdded || 0) + charsDelta;
 		});
 }

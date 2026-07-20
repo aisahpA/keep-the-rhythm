@@ -82,14 +82,6 @@ export interface Settings {
 		folderPath: string;
 	};
 
-	/**
-	 * Number of days to keep detailed 5-minute time-slot entries.
-	 * Entries older than this are compressed into a single aggregated
-	 * time-slot to cap the size of data.json.  Set to 0 to disable
-	 * compression entirely.
-	 */
-	daysToKeepDetailed: number;
-
 	sidebarConfig: {
 		visibility: {
 			showSlots: boolean;
@@ -156,7 +148,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	trackedFolders: [],
 	startOfTheWeek: "SUNDAY",
 	heatmapNavigation: true,
-	daysToKeepDetailed: 30,
 	heatmapConfig: {
 		roundCells: true,
 		hideMonthLabels: false,

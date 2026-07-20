@@ -15,7 +15,8 @@ export class ManualEntryModal extends Modal {
 		filePath: "",
 		wordCountStart: 0,
 		charCountStart: 0,
-		changes: [],
+		wordsAdded: 0,
+		charsAdded: 0,
 	};
 
 	private wordsDelta = 0;

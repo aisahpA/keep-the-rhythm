@@ -4,13 +4,10 @@ import { getCurrentCount } from "@/db/queries";
 import { EVENTS, state } from "./pluginState";
 import { TFile, Editor } from "obsidian";
 import { getDB } from "../db/db";
-import { DailyActivity, TimeEntry } from "@/db/types";
+import { DailyActivity } from "@/db/types";
 import KeepTheRhythm from "../main";
 import { getLanguageBasedWordCount } from "@/core/wordCounting";
-import { getCurrentTimeKey } from "@/utils/dateUtils";
-import { floorMomentToFive } from "@/utils/dateUtils";
 import { moment as _moment } from "obsidian";
-import { emit } from "process";
 import { getExistingOrCreateNewEntry, sumBothTimeEntries } from "@/utils/utils";
 import { isPathTracked } from "./pathFilter";
 
@@ -99,9 +96,9 @@ async function runPendingEditorChange(): Promise<void> {
 /**
  * @function processEditorChange
  * Reads the current editor content, computes word/char deltas against the
- * activity's running totals, and records them into the active 5-minute
- * time slot. Called from the debounce timer (via handleEditorChange) or
- * synchronously flushed on file switch / unload.
+ * activity's running totals, and accumulates them. Called from the debounce
+ * timer (via handleEditorChange) or synchronously flushed on file switch /
+ * unload.
  */
 async function processEditorChange(
   editor: Editor,
@@ -163,36 +160,11 @@ async function processEditorChange(
   }
 
   /**
-   * @const lastTimeKey Get's last key saved for this DailyActivity
-   * @const currentTimeKey Rounds current time to multiples of 5 so data is saved in consistent blocks
-   * Uses floors so it always rounds down (since you can write words in the future rsrs)
+   * Accumulate the delta into the activity's flat word/char totals.
    */
-  const changes: TimeEntry[] = state.currentActivity?.changes || [];
-  const currentTimeKey = floorMomentToFive(moment()).format("HH:mm");
+  activity.wordsAdded = (activity.wordsAdded || 0) + (wordsAdded || 0);
+  activity.charsAdded = (activity.charsAdded || 0) + (charsAdded || 0);
 
-  /**
-   * Check if there is already a time key (HH:mm) for a change, create one if there isn't
-   * Time keys are added in blocks of 5 minutes and snap to the nearest time
-   */
-
-  const existingEntry = changes.find(
-    (entry) => entry.timeKey === currentTimeKey,
-  );
-
-  if (!existingEntry) {
-    // No entry yet for this timeKey, so push a new one
-    changes.push({
-      timeKey: currentTimeKey,
-      w: wordsAdded || 0,
-      c: charsAdded || 0,
-    });
-  } else {
-    // Entry exists, so update the word and char count
-    existingEntry.w += wordsAdded;
-    existingEntry.c += charsAdded;
-  }
-
-  // WORKING ON UPDATING JUST TODAY!!!
   state.emit(EVENTS.REFRESH_EVERYTHING);
 
   /** Debounces updates to the DB, which only happens when
@@ -263,28 +235,8 @@ async function flushChangesToDB(activity: DailyActivity) {
     .dailyActivity.where("[date+filePath]")
     .equals([activity.date, activity.filePath])
     .modify((dailyEntry) => {
-      const existingChanges: TimeEntry[] = dailyEntry.changes || [];
-      const currentChanges: TimeEntry[] = activity.changes;
-
-      // Convert existing changes to a map
-      const mergedMap: Record<string, TimeEntry> = {};
-      for (const entry of existingChanges) {
-        mergedMap[entry.timeKey] = { ...entry };
-      }
-
-      for (const entry of currentChanges) {
-        if (mergedMap[entry.timeKey]) {
-          mergedMap[entry.timeKey].w = entry.w;
-          mergedMap[entry.timeKey].c = entry.c;
-        } else {
-          mergedMap[entry.timeKey] = { ...entry };
-        }
-      }
-
-      // Convert map back to array and sort by timeKey
-      dailyEntry.changes = Object.values(mergedMap).sort((a, b) =>
-        a.timeKey.localeCompare(b.timeKey),
-      );
+      dailyEntry.wordsAdded = activity.wordsAdded;
+      dailyEntry.charsAdded = activity.charsAdded;
     });
 
   checkStreak();
@@ -336,74 +288,21 @@ async function checkStreak() {
  * Should probably just get the fileWordCount and consider it as delta in it's dailyActivity?
  */
 export async function handleFileDelete(file: TFile) {
-  // Add this check at the beginning
   if (!file || file.extension !== "md") {
     return;
   }
-  // Ignore deletes for files outside the tracking scope.
   if (!isPathTracked(file.path)) {
     return;
   }
-  //FUTURE: correct file delta is only calculated if the user opens the file first
-  // if he doesnt there is no daily activity to get the current file count and it will not consider that into the calculations
   try {
     await getDB()
       .dailyActivity.where("[date+filePath]")
       .equals([state.today, file.path])
       .modify((dailyEntry) => {
-        let wordSum = 0;
-        let charSum = 0;
-
-        const currentTimeKey = getCurrentTimeKey();
-
-        /** If no changed was made to the file
-         *  Then the delta is just the word count when it was opened
-         */
-
-        if (!dailyEntry.changes || dailyEntry.changes?.length == 0) {
-          dailyEntry.changes.push({
-            timeKey: currentTimeKey,
-            w: -dailyEntry.wordCountStart,
-            c: -dailyEntry.charCountStart,
-          });
-          return;
-        }
-
-        /** If there where changes made,
-         *  We need to sum those changes
-         *  The last change is only included if it's timekey isn't the current one
-         */
-        // Get the last change (if any)
-        const lastEntry = dailyEntry.changes[dailyEntry.changes.length - 1];
-        const lastTimeKey = lastEntry?.timeKey;
-
-        for (let i = 0; i < dailyEntry.changes.length - 1; i++) {
-          wordSum += dailyEntry.changes[i].w;
-          charSum += dailyEntry.changes[i].c;
-        }
-
-        // If lastTimeKey is not the same as current, include it
-        if (lastEntry && lastTimeKey !== currentTimeKey) {
-          wordSum += lastEntry.w;
-          charSum += lastEntry.c;
-        }
-
-        const newEntry: TimeEntry = {
-          timeKey: currentTimeKey,
-          w: -(wordSum + dailyEntry.wordCountStart),
-          c: -(charSum + dailyEntry.charCountStart),
-        };
-
-        // Find and update the existing entry if it exists
-        const existingIndex = dailyEntry.changes.findIndex(
-          (e) => e.timeKey === currentTimeKey,
-        );
-
-        if (existingIndex !== -1) {
-          dailyEntry.changes[existingIndex] = newEntry;
-        } else {
-          dailyEntry.changes.push(newEntry);
-        }
+        // Reverse the entire day's delta so the file's contribution
+        // to today's stats is zeroed out.
+        dailyEntry.wordsAdded = -(dailyEntry.wordCountStart || 0);
+        dailyEntry.charsAdded = -(dailyEntry.charCountStart || 0);
       });
 
     state.emit(EVENTS.REFRESH_EVERYTHING);

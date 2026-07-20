@@ -110,20 +110,10 @@ export function sumBothTimeEntries(activity: DailyActivity): {
 	totalWords: number;
 	totalChars: number;
 } {
-	let totalWords = 0;
-	let totalChars = 0;
-
-	totalWords += activity.wordCountStart || 0;
-	totalChars += activity.charCountStart || 0;
-
-	for (const entry of activity.changes) {
-		totalWords += entry.w;
-	}
-	for (const entry of activity.changes) {
-		totalChars += entry.c;
-	}
-
-	return { totalWords, totalChars };
+	return {
+		totalWords: (activity.wordCountStart || 0) + (activity.wordsAdded || 0),
+		totalChars: (activity.charCountStart || 0) + (activity.charsAdded || 0),
+	};
 }
 
 export function sumTimeEntries(
@@ -131,36 +121,18 @@ export function sumTimeEntries(
 	unit: Unit,
 	excludeStart?: boolean,
 ): number {
-	let total = 0;
+	const start = excludeStart
+		? 0
+		: unit === Unit.WORD
+			? dailyActivity?.wordCountStart || 0
+			: dailyActivity?.charCountStart || 0;
 
-	switch (unit) {
-		case Unit.WORD:
-			if (!excludeStart) {
-				total += dailyActivity?.wordCountStart || 0;
-			} else {
-				total = 0;
-			}
-			if (!dailyActivity?.changes) break;
+	const delta =
+		unit === Unit.WORD
+			? dailyActivity?.wordsAdded || 0
+			: dailyActivity?.charsAdded || 0;
 
-			for (const entry of dailyActivity.changes) {
-				total += entry.w;
-			}
-			break;
-		case Unit.CHAR:
-			if (!excludeStart) {
-				total += dailyActivity?.wordCountStart || 0;
-			} else {
-				total = 0;
-			}
-			if (!dailyActivity?.changes) break;
-
-			for (const entry of dailyActivity.changes) {
-				total += entry.c;
-			}
-			break;
-	}
-
-	return total;
+	return start + delta;
 }
 
 async function _resetDatabase() {
@@ -306,7 +278,8 @@ export async function createActivityObject(file: TFile, date: string) {
 		filePath: file.path,
 		wordCountStart: currentWordCount,
 		charCountStart: content.length,
-		changes: [],
+		wordsAdded: 0,
+		charsAdded: 0,
 	};
 
 	return newActivity;

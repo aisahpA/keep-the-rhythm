@@ -1,5 +1,4 @@
-import { DailyActivity, TimeEntry } from "@/db/types";
-import { getRandomInt } from "./utils";
+import { DailyActivity } from "@/db/types";
 import { getDB } from "@/db/db";
 
 export async function mockMonthDailyActivity() {
@@ -12,23 +11,12 @@ export async function mockMonthDailyActivity() {
 
 		const dateStr = day.toISOString().split("T")[0]; // YYYY-MM-DD
 
-		// Simulate some changes throughout the day
-		const changes: TimeEntry[] = [];
 		const sessions = Math.floor(Math.random() * 5 + 1);
-
+		let wordsAdded = 0;
+		let charsAdded = 0;
 		for (let j = 0; j < sessions; j++) {
-			const randomHour = getRandomInt(0, 24);
-			const randomMinute = getRandomInt(0, 60);
-			const timestamp =
-				String(randomHour).padStart(2, "0") +
-				":" +
-				String(randomMinute).padStart(2, "0");
-
-			changes.push({
-				timeKey: timestamp,
-				w: Math.floor(Math.random() * 100),
-				c: Math.floor(Math.random() * 500),
-			});
+			wordsAdded += Math.floor(Math.random() * 100);
+			charsAdded += Math.floor(Math.random() * 500);
 		}
 
 		const rand = Math.random();
@@ -46,7 +34,8 @@ export async function mockMonthDailyActivity() {
 			filePath,
 			wordCountStart: 0,
 			charCountStart: 0,
-			changes,
+			wordsAdded,
+			charsAdded,
 		});
 	}
 

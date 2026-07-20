@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, PluginData } from "../defs/types";
-import { TimeEntry, DailyActivity } from "../db/types";
+import { DailyActivity } from "../db/types";
 
 export type OldFormat = {
   settings: {
@@ -68,20 +68,15 @@ export function migrateDataFromOldFormat(oldData: OldFormat): PluginData {
 
           if (activityMap.has(activityKey)) {
             const existingActivity = activityMap.get(activityKey)!;
-            existingActivity.changes[0].w += wordDelta;
+            existingActivity.wordsAdded += wordDelta;
           } else {
-            const change: TimeEntry = {
-              timeKey: "12:00",
-              w: wordDelta,
-              c: 0,
-            };
-
             const activity: DailyActivity = {
               date,
               filePath,
               wordCountStart: fileData.initial,
               charCountStart: 0,
-              changes: [change],
+              wordsAdded: wordDelta,
+              charsAdded: 0,
             };
 
             activityMap.set(activityKey, activity);
@@ -93,18 +88,13 @@ export function migrateDataFromOldFormat(oldData: OldFormat): PluginData {
         const recoveredFilePath = "recovered-file";
         const activityKey = `${date}-${recoveredFilePath}`;
 
-        const change: TimeEntry = {
-          timeKey: "12:00",
-          w: dayData.totalDelta,
-          c: 0,
-        };
-
         const activity: DailyActivity = {
           date,
           filePath: recoveredFilePath,
           wordCountStart: 0,
           charCountStart: 0,
-          changes: [change],
+          wordsAdded: dayData.totalDelta,
+          charsAdded: 0,
         };
 
         activityMap.set(activityKey, activity);

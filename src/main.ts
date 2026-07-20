@@ -102,7 +102,6 @@ export default class KeepTheRhythm extends Plugin {
 		state.setToday();
 
 		this.checkVaultCountStaleness();
-		this.compressOldEntries();
 
 		// /** Set of utility functions that registers required objects and sets plugin state */
 
@@ -173,42 +172,7 @@ export default class KeepTheRhythm extends Plugin {
 		}
 	}
 
-	/**
-	 * Compresses old DailyActivity entries: entries whose date is older than
-	 * `daysToKeepDetailed` have their 5-minute time-slot array merged into a
-	 * single aggregated slot.  This caps the size of data.json without
-	 * affecting historical stats.
-	 */
-	private async compressOldEntries() {
-		const daysToKeep = this.data.settings.daysToKeepDetailed;
-		if (daysToKeep <= 0) return;
-
-		const threshold = window
-			.moment()
-			.subtract(daysToKeep, "days")
-			.format("YYYY-MM-DD");
-
-		const oldEntries = await getDB()
-			.dailyActivity.where("date")
-			.below(threshold)
-			.toArray();
-
-		for (const entry of oldEntries) {
-			if (!entry.changes || entry.changes.length <= 1) continue;
-
-			let totalW = 0;
-			let totalC = 0;
-			for (const change of entry.changes) {
-				totalW += change.w;
-				totalC += change.c;
-			}
-
-			entry.changes = [{ timeKey: "00:00", w: totalW, c: totalC }];
-			await getDB().dailyActivity.put(entry);
-		}
-	}
-
-	private async backupDataToVaultFolder(data: any) {
+		private async backupDataToVaultFolder(data: any) {
 		const backupConfig =
 			data.settings.backupConfig || this.data.settings.backupConfig;
 
@@ -341,6 +305,25 @@ export default class KeepTheRhythm extends Plugin {
 
 			const dailyActivitiesFromJSON =
 				this.data.stats?.dailyActivity || [];
+
+			// Migrate legacy `changes: TimeEntry[]` to flat `wordsAdded` /
+			// `charsAdded` fields.  Old entries are summed; new entries are
+			// passed through unchanged.
+			for (const activity of dailyActivitiesFromJSON as any[]) {
+				if (activity.changes) {
+					activity.wordsAdded = activity.changes.reduce(
+						(sum: number, c: any) => sum + (c.w || 0),
+						0,
+					);
+					activity.charsAdded = activity.changes.reduce(
+						(sum: number, c: any) => sum + (c.c || 0),
+						0,
+					);
+					delete activity.changes;
+				}
+				if (activity.wordsAdded === undefined) activity.wordsAdded = 0;
+				if (activity.charsAdded === undefined) activity.charsAdded = 0;
+			}
 
 			try {
 				/** BulkPut updates the records if they already exist! */
