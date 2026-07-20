@@ -44,6 +44,14 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
             "Only track files under these folders. Add one folder per click. Leave empty to track the whole vault.",
           placeholder: "e.g. 20-research",
         },
+        {
+          key: "daysToKeepDetailed",
+          type: "number",
+          title: "Days to Keep Detailed",
+          description:
+            "Number of days to keep detailed 5-minute time-slot entries. Older entries are compressed into a single daily total. Set to 0 to disable compression.",
+          placeholder: "30",
+        },
       ],
     },
     {
