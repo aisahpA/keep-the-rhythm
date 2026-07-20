@@ -43,6 +43,8 @@ export default class KeepTheRhythm extends Plugin {
 	private LAST_BREAKING_CHANGE_TO_SCHEMA = "0.2";
 
 	private JsonDebounceTimeout: any = null;
+	private _saveGen = 0;
+	private _isUnloading = false;
 
 	async onload() {
 		state.setPlugin(this);
@@ -53,7 +55,11 @@ export default class KeepTheRhythm extends Plugin {
 		initDatabase();
 
 		// todo: check if this is really necessary
-		getDB().dailyActivity.clear(); // restarts DB to ensure data.json is the source of truth
+		await getDB().dailyActivity.clear(); // restarts DB to ensure data.json is the source of truth
+		// Must be awaited: otherwise this fire-and-forget clear() can resolve
+		// AFTER initializeDataFromJSON's bulkPut below, wiping the just-loaded
+		// data. The now-empty DB then gets persisted back to data.json and
+		// overwrites the good same-day backup with empty stats.
 
 		/////////
 		const loadedData = await this.loadData();
@@ -126,11 +132,17 @@ export default class KeepTheRhythm extends Plugin {
 		);
 
 		state.on(EVENTS.REFRESH_EVERYTHING, async () => {
+			if (this._isUnloading) return;
+
 			if (this.JsonDebounceTimeout) {
 				clearTimeout(this.JsonDebounceTimeout);
 			}
 
+			this._saveGen++;
+			const gen = this._saveGen;
 			this.JsonDebounceTimeout = setTimeout(async () => {
+				if (gen !== this._saveGen) return; // stale — a newer save was scheduled or unload invalidated it
+				this.JsonDebounceTimeout = null;
 				await this.saveDataToJSON();
 			}, this.JSON_DEBOUNCE_TIME);
 		});
@@ -391,17 +403,32 @@ export default class KeepTheRhythm extends Plugin {
 	// #region Unloading
 
 	async onunload() {
-		events.cleanDBTimeout();
+		this._isUnloading = true;
+
+		// Flush in-memory changes to the DB. Must be awaited so all
+		// REFRESH_EVERYTHING emissions (and their debounced save timers)
+		// settle before we invalidate them below.
+		await events.cleanDBTimeout();
 
 		if (this.dayTimer !== null) {
 			window.clearTimeout(this.dayTimer);
 		}
 
+		// Invalidate any pending debounced saveDataToJSON callbacks that
+		// may have been queued before or during cleanDBTimeout. The timer
+		// is cancelled so it won't fire; if it already fired and the
+		// callback is pending, the generation check inside the callback
+		// (see REFRESH_EVERYTHING handler) will make it a no-op.
+		this._saveGen++;
 		if (this.JsonDebounceTimeout) {
 			clearTimeout(this.JsonDebounceTimeout);
+			this.JsonDebounceTimeout = null;
 		}
-		this.saveDataToJSON();
-		this.backupDataToVaultFolder(this.data);
+		// Persist and back up BEFORE clearing the DB. These must be awaited and
+		// ordered: an un-awaited clear() could otherwise empty the DB before
+		// saveDataToJSON snapshots it, backing up (and saving) empty stats.
+		await this.saveDataToJSON();
+		await this.backupDataToVaultFolder(this.data);
 
 		await getDB().dailyActivity.clear();
 	}
@@ -455,6 +482,16 @@ export default class KeepTheRhythm extends Plugin {
 
 	private async saveDataToJSON() {
 		const dailyActivityDB = await getDB().dailyActivity.toArray();
+
+		// Safety guard: if the DB is empty but we have entries in memory, the DB
+		// was likely cleared by a race (e.g., a stale timer callback or an
+		// un-awaited clear()).  Don't overwrite data.json with empty data.
+		if (
+			dailyActivityDB.length === 0 &&
+			(this.data.stats?.dailyActivity?.length ?? 0) > 0
+		) {
+			return;
+		}
 
 		this.data.stats = {
 			...this.data.stats,

@@ -232,6 +232,7 @@ export async function handleFileOpen(file: TFile) {
     file.path == state.currentActivity?.filePath &&
     state.currentActivity?.date === state.today
   ) {
+    state.isUpdatingActivity = false;
     return;
   }
 
@@ -292,23 +293,23 @@ async function flushChangesToDB(activity: DailyActivity) {
 
 /**
  * @function cleanDBTimeout
- * Clears timeouts and flushed any data on memory to the DB
+ * Clears timeouts and flushes any in-memory data to the DB.
+ * Must be awaited so all REFRESH_EVERYTHING emissions settle before the
+ * caller (onunload) invalidates pending saves and clears the DB.
  */
-export function cleanDBTimeout() {
+export async function cleanDBTimeout() {
   // Flush any pending editor-change sample so the final deltas land in the
-  // activity before we flush it to the DB. Fire-and-forget: unload cannot
-  // await, but processEditorChange only mutates in-memory state which the
-  // following flushChangesToDB will then persist.
+  // activity before we flush it to the DB.
   if (editorChangeTimer) {
     clearTimeout(editorChangeTimer);
     editorChangeTimer = null;
-    void runPendingEditorChange();
+    await runPendingEditorChange();
   }
 
   if (dbUpdateTimeout) {
     clearTimeout(dbUpdateTimeout);
   }
-  flushChangesToDB(state.currentActivity!);
+  await flushChangesToDB(state.currentActivity!);
 }
 
 /**
