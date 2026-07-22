@@ -171,7 +171,7 @@ export default class KeepTheRhythm extends Plugin {
 		}
 	}
 
-		private async backupDataToVaultFolder(data: any) {
+	private async backupDataToVaultFolder(data: any) {
 		const backupConfig =
 			data.settings.backupConfig || this.data.settings.backupConfig;
 

@@ -110,6 +110,7 @@ Keep the Rhythm provides three types of embeddable code blocks.
 
 Embed customizable heatmaps with filtering and display options:
 
+````
 ```js
 filePath starts_with "journal"
 
@@ -121,6 +122,7 @@ SQUARED_CELLS                              // changes the cell styling for a mor
 ROUNDED_CELLS                              // changes the cell styling for a rounded look
 WEEKS 24                                   // changes how many weeks are displayed (can affect performance)
 ```
+````
 
 Query Syntax:
 
@@ -138,6 +140,7 @@ Available Options:
 
 Display inline statistics with customizable metrics:
 
+````
 ```ktr-slots
 CURRENT_WEEK, WORDS
 CURRENT_DAY, CHARS
@@ -146,6 +149,7 @@ WHOLE_VAULT
 CURRENT_MONTH, WORDS, AVG
 CURRENT_YEAR
 ```
+````
 
 Available Slots:
 
@@ -170,9 +174,11 @@ Available Slots:
 
 Display writing activity for specific dates:
 
+````
 ```ktr-entries
 2024-03-15
 ```
+````
 
 Shows the activity for the specified date (`YYYY-MM-DD` format). If no date is provided, displays the current date's activity.
 
