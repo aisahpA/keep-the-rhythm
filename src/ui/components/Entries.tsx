@@ -3,7 +3,6 @@ import { Tooltip } from "./Tooltip";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import React from "react";
 import { useEffect, useState, useRef } from "react";
-import { formatDate } from "../../utils/dateUtils";
 import { getActivityByDate } from "../../db/queries";
 import { sumTimeEntries, getFileNameWithoutExtension } from "../../utils/utils";
 import { state, EVENTS } from "../../core/pluginState";
@@ -19,9 +18,10 @@ interface EntriesProps {
 }
 
 export const Entries = ({
-  date = formatDate(new Date()),
+  date: dateProp,
   filters,
 }: EntriesProps) => {
+  const date = dateProp ?? state.today;
   const [unit, setUnit] = useState<Unit>(Unit.WORD);
   const [entries, setEntries] = useState<DailyActivity[]>([]);
 
@@ -83,7 +83,7 @@ export const Entries = ({
     return () => {
       state.off(EVENTS.REFRESH_EVERYTHING, handleEntriesRefresh);
     };
-  }, []);
+  }, [date]);
 
   return (
     <div className="todayEntries__section">
