@@ -92,16 +92,19 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 		version,
 	]);
 
-	const matchesFilters = (entry: ActivityRecord): boolean => {
-		if (entry.wordsAdded === 0) return false;
-		// "date" type is resolved upstream into the `date` prop, so only
-		// includes/excludes reach this predicate.
-		return (filters ?? []).every((f) => {
-			if (f.type === "includes") return entry.filePath.includes(f.value);
-			if (f.type === "excludes") return !entry.filePath.includes(f.value);
-			return true;
-		});
-	};
+	const matchesFilters = useCallback(
+		(entry: ActivityRecord): boolean => {
+			if (entry.wordsAdded === 0) return false;
+			// "date" type is resolved upstream into the `date` prop, so only
+			// includes/excludes reach this predicate.
+			return (filters ?? []).every((f) => {
+				if (f.type === "includes") return entry.filePath.includes(f.value);
+				if (f.type === "excludes") return !entry.filePath.includes(f.value);
+				return true;
+			});
+		},
+		[filters],
+	);
 
 	// Filter + sort live in their own useMemo so a `filters` change does
 	// not re-fetch data, and a data change does not re-run the filter
@@ -112,7 +115,7 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 			rawEntries
 				.filter(matchesFilters)
 				.sort((a, b) => b.wordsAdded - a.wordsAdded),
-		[rawEntries, filters],
+		[rawEntries, matchesFilters],
 	);
 
 	const addManualEntry = useCallback(() => {
