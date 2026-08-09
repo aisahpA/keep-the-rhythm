@@ -50,7 +50,7 @@ export const Heatmap = ({
 		}
 	}, [query]);
 
-	const hasFilter =
+	const isFilterActive =
 		(query?.type === "BinaryExpression" &&
 			(query?.operator === "starts_with" ||
 				query?.operator === "STARTS_WITH")) ||
@@ -78,29 +78,37 @@ export const Heatmap = ({
 		return dates;
 	}, [gridKey]);
 
-	// No-filter path: depends ONLY on version numbers + grid shape.  The
-	// underlying getDailySummaryMap cache is version-keyed, so a stable
-	// dailyActivity reference is irrelevant here.  This is the hot path
-	// for the sidebar heatmap (no codeBlock filter) and must not invalidate
-	// on every keystroke.
-	const cachedHeatmapData = useMemo(() => {
+	// No-filter path: split into two tiers so that keystrokes
+	// (todayVersion changes) only re-read today's cell:
+	//   • unfilteredBaseData — all non-today cells; cached by
+	//     (historicalVersion, grid) — NOT todayVersion.
+	//   • unfilteredTodayData — today's cell only; re-read each keystroke.
+	// This is the hot path for the sidebar heatmap and must not invalidate
+	// the historical base on every keystroke.
+	const unfilteredBaseData = useMemo(() => {
 		const fullMap = getDailySummaryMap();
-		const filteredMap: Record<string, number> = {};
+		const map: Record<string, number> = {};
 		for (const date of cellDates) {
-			filteredMap[date] = fullMap[date] || 0;
+			if (date === today) continue;
+			map[date] = fullMap[date] || 0;
 		}
-		return filteredMap;
-	}, [todayVersion, historicalVersion, gridKey]);
+		return map;
+	}, [historicalVersion, gridKey, cellDates, today]);
+
+	const unfilteredTodayData = useMemo(() => {
+		const fullMap = getDailySummaryMap();
+		return fullMap[today] || 0;
+	}, [todayVersion, today]);
 
 	// Filtered path: iterate ONLY the days inside the visible grid
 	// (cellDates), never the full history.  Split into two tiers so that
 	// keystrokes (todayVersion changes) only re-scan today's row:
-	//   • filteredHistorical — every non-today cell; cached by
+	//   • filteredBaseData — every non-today cell; cached by
 	//     (historicalVersion, grid, query) — NOT todayVersion, so typing
 	//     today never re-walks historical rows.
-	//   • filteredToday — today's cell only; re-scanned each keystroke.
-	const filteredHistorical = useMemo(() => {
-		if (!hasFilter) return null;
+	//   • filteredTodayData — today's cell only; re-scanned each keystroke.
+	const filteredBaseData = useMemo(() => {
+		if (!isFilterActive) return null;
 		const { days } = useStore.getState();
 		const dateMap: Record<string, number> = {};
 		for (const date of cellDates) {
@@ -109,27 +117,29 @@ export const Heatmap = ({
 			if (day) filterDayInto(date, day, prefix, compiledEvaluator, dateMap);
 		}
 		return dateMap;
-	}, [hasFilter, today, historicalVersion, prefix, compiledEvaluator,
+	}, [isFilterActive, today, historicalVersion, prefix, compiledEvaluator,
 		cellDates,
 	]);
 
-	const filteredToday = useMemo(() => {
-		if (!hasFilter) return null;
+	const filteredTodayData = useMemo(() => {
+		if (!isFilterActive) return null;
 		const { days } = useStore.getState();
 		const dateMap: Record<string, number> = {};
 		const day = days[today];
 		if (day) filterDayInto(today, day, prefix, compiledEvaluator, dateMap);
 		return dateMap;
-	}, [hasFilter, today, todayVersion, prefix, compiledEvaluator]);
+	}, [isFilterActive, today, todayVersion, prefix, compiledEvaluator]);
 
-	const filteredHeatmapData = useMemo(() => {
-		if (!hasFilter) return null;
-		return { ...filteredHistorical, ...filteredToday };
-	}, [hasFilter, filteredHistorical, filteredToday]);
+	// Base map for the grid — kept stable across keystrokes:
+	//   • no-filter → unfilteredBaseData (rebuilt only on historicalVersion /
+	//     grid changes; excludes today)
+	//   • filtered  → filteredBaseData (same behavior)
+	// Today's live cell is overlaid separately inside `cellData`:
+	//   • no-filter → unfilteredTodayData
+	//   • filtered  → filteredTodayData
+	const baseCellData = isFilterActive ? filteredBaseData : unfilteredBaseData;
 
-	const heatmapData = filteredHeatmapData ?? cachedHeatmapData;
-
-	const getIntensityLevel = useMemo(
+	const intensityResolver = useMemo(
 		() => buildIntensityResolver(heatmapConfig),
 		[heatmapConfig],
 	);
@@ -162,16 +172,34 @@ export const Heatmap = ({
 			isToday: boolean;
 		}[] = [];
 		for (const dateStr of cellDates) {
-			const count = heatmapData[dateStr] ?? 0;
+			// Today's cell: read from the live overlay (re-scanned each keystroke).
+			// Historical cells: read from the stable base (never re-iterates on keystrokes).
+			let count: number;
+			if (dateStr === today) {
+				count = isFilterActive
+					? (filteredTodayData?.[dateStr] ?? 0)
+					: unfilteredTodayData;
+			} else {
+				count = baseCellData?.[dateStr] ?? 0;
+			}
 			data.push({
 				date: dateStr,
 				count,
-				intensity: getIntensityLevel(count),
+				intensity: intensityResolver(count),
 				isToday: dateStr === today,
 			});
 		}
 		return data;
-	}, [gridKey, heatmapData, getIntensityLevel, today]);
+	}, [
+		gridKey,
+		baseCellData,
+		filteredTodayData,
+		unfilteredTodayData,
+		intensityResolver,
+		today,
+		isFilterActive,
+		cellDates,
+	]);
 
 	const wrapperClasses = useMemo(
 		() =>
@@ -191,7 +219,7 @@ export const Heatmap = ({
 			skipDelayDuration={1000}
 			disableHoverableContent
 		>
-			{heatmapData && (
+			{baseCellData && (
 				<div className={wrapperClasses}>
 					{!heatmapConfig.hideWeekdayLabels && (
 						<div className="week-day-labels">
