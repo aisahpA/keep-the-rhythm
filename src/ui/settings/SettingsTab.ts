@@ -1,7 +1,7 @@
-import { formatDate } from "@/utils/dateUtils";
-import { state } from "@/core/pluginState";
+import { formatDateByMoment } from "@/utils/dateUtils";
 import { App, PluginSettingTab, Setting } from "obsidian";
 import { Settings } from "@/defs/types";
+import { useStore } from "@/core/store";
 
 import { SETTINGS_SCHEMA, SettingItem } from "./SettingSchema";
 import {
@@ -10,17 +10,18 @@ import {
   createColorModeSettings,
   createThresholdSettings,
   createBackupFolderPathSetting,
-  createTrackedFoldersSetting,
 } from "./CustomSettings";
+import { createTrackedFoldersSetting } from "./TrackedFoldersSetting";
 
 export class SettingsTab extends PluginSettingTab {
-  private plugin: any;
-  private settings: Settings;
 
   constructor(app: App, plugin: any) {
     super(app, plugin);
-    this.plugin = plugin;
-    this.settings = plugin.data.settings;
+  }
+
+  /** Always returns the current store settings reference. */
+  private get settings(): Settings {
+    return useStore.getState().settings;
   }
 
   display(): void {
@@ -33,17 +34,8 @@ export class SettingsTab extends PluginSettingTab {
 
       section.settings.forEach((setting) => {
         this.renderSetting(containerEl, setting);
-        // const currentValue = getByPath(this.settings, setting.key);
-        // updateVisibility(setting.key, currentValue);
       });
     });
-
-    // Extra settings and elements not contemplated by settings setup
-    // // containerEl.createEl("button").setText("Saw or bug or have feedback?");
-    containerEl.createEl("hr");
-    containerEl.createEl("div").innerHTML = `
-			<a href="https://www.buymeacoffee.com/ezben"><img src="https://img.buymeacoffee.com/button-api/?text=Support this plugin!&emoji=&slug=ezben&button_colour=FFDD00&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=ffffff" /></a>
-		`;
   }
 
   private renderSetting(containerEl: HTMLElement, config: any) {
@@ -59,9 +51,10 @@ export class SettingsTab extends PluginSettingTab {
     switch (config.type) {
       case "toggle":
         setting.addToggle((toggle) =>
-          toggle.setValue(!!currentValue).onChange(async (value) => {
-            setByPath(this.settings, config.key, value);
-            await this.plugin.updateAndSaveEverything();
+          toggle.setValue(!!currentValue).onChange((value) => {
+            useStore.getState().mutateSettings((draft) => {
+              setByPath(draft, config.key, value);
+            });
             updateVisibility(config.key, value);
           }),
         );
@@ -70,10 +63,11 @@ export class SettingsTab extends PluginSettingTab {
       case "date":
         setting.addText((text) => {
           text.inputEl.setAttribute("type", "date");
-          text.setValue(formatDate(currentValue)).onChange(async (value) => {
+          text.setValue(formatDateByMoment(currentValue)).onChange((value) => {
             const date = value ? new Date(value) : null;
-            setByPath(this.settings, config.key, date);
-            await this.plugin.updateAndSaveEverything();
+            useStore.getState().mutateSettings((draft) => {
+              setByPath(draft, config.key, date);
+            });
             updateVisibility(config.key, date);
           });
         });
@@ -82,10 +76,10 @@ export class SettingsTab extends PluginSettingTab {
             .setIcon("trash")
             .setTooltip("Clear date")
             .setDisabled(currentValue !== "")
-            .onClick(async () => {
-              // Clear the date in settings
-              setByPath(this.settings, config.key, undefined);
-              await this.plugin.updateAndSaveEverything();
+            .onClick(() => {
+              useStore.getState().mutateSettings((draft) => {
+                setByPath(draft, config.key, undefined);
+              });
 
               const inputEl = setting.controlEl.querySelector(
                 'input[type="date"]',
@@ -95,30 +89,33 @@ export class SettingsTab extends PluginSettingTab {
         });
         break;
 
-      case "number":
+      case "number": {
         setting.addText((text) =>
           text
             .setPlaceholder(config.placeholder ?? "")
             .setValue(String(currentValue ?? ""))
-            .onChange(async (value) => {
+            .onChange((value) => {
               const num = parseInt(value);
               if (!isNaN(num)) {
-                setByPath(this.settings, config.key, num);
-                await this.plugin.updateAndSaveEverything(); // Maybe add debounce
+                useStore.getState().mutateSettings((draft) => {
+                  setByPath(draft, config.key, num);
+                });
               }
               updateVisibility(config.key, num);
             }),
         );
         break;
+      }
 
       case "dropdown":
         setting.addDropdown((dropdown) => {
           dropdown
             .addOptions(config.options)
             .setValue(currentValue)
-            .onChange(async (value) => {
-              setByPath(this.settings, config.key, value);
-              await this.plugin.updateAndSaveEverything();
+            .onChange((value) => {
+              useStore.getState().mutateSettings((draft) => {
+                setByPath(draft, config.key, value);
+              });
               updateVisibility(config.key, value);
             });
         });
@@ -161,53 +158,50 @@ export function getByPath(obj: any, path: string) {
   return path.split(".").reduce((acc, key) => acc?.[key], obj);
 }
 
-// This has to change the whole object cause mutating nested properties won't trigger rerenders for the relevant components
+// Directly mutates the nested property at the given dotted path.
 export function setByPath(obj: any, path: string, value: any) {
   const keys = path.split(".");
   const last = keys.pop()!;
-
-  // Walk and copy the object chain to maintain immutability
   let target = obj;
-  const parents: any[] = [];
-  keys.forEach((key) => {
-    parents.push(target);
-    target[key] = { ...target[key] }; // create shallow copy
+  for (const key of keys) {
     target = target[key];
-  });
-
+  }
   target[last] = value;
+}
 
-  // Re-assign references back up the chain
-  for (let i = keys.length - 1; i >= 0; i--) {
-    const parent = parents[i];
-    parent[keys[i]] = { ...parent[keys[i]] };
+// Reverse map: for each setting key, which settings depend on it for visibility.
+// Computed once at module load so updateVisibility() only visits relevant settings.
+const VISIBILITY_DEPENDENTS = new Map<string, SettingItem[]>();
+for (const section of SETTINGS_SCHEMA.sections) {
+  for (const s of section.settings) {
+    if (!s.visibleWhen) continue;
+    for (const depKey of Object.keys(s.visibleWhen)) {
+      const list = VISIBILITY_DEPENDENTS.get(depKey);
+      if (list) list.push(s);
+      else VISIBILITY_DEPENDENTS.set(depKey, [s]);
+    }
   }
 }
 
 export function updateVisibility(changedKey: string, newValue: any) {
-  SETTINGS_SCHEMA.sections.forEach((section) => {
-    section.settings.forEach((s: SettingItem) => {
-      if (!s.visibleWhen) return;
+  const dependents = VISIBILITY_DEPENDENTS.get(changedKey);
+  if (!dependents) return;
 
-      const visibleCondition = s.visibleWhen[changedKey];
-      // if (!allowed) return;
+  for (const s of dependents) {
+    const condition = s.visibleWhen![changedKey];
 
-      let shouldBeVisible;
+    const shouldBeVisible =
+      typeof condition === "boolean"
+        ? condition === newValue
+        : Array.isArray(condition)
+          ? condition.includes(newValue)
+          : true;
 
-      if (typeof visibleCondition == "boolean") {
-        shouldBeVisible = visibleCondition == newValue;
-      } else {
-        // newValue == visibleCondition.includes(newValue);
-        shouldBeVisible = true; // TODO: check later for cases, non existent right now
-      }
+    const el = document.querySelector(
+      `[data-setting-key="${s.key}"]`,
+    ) as HTMLElement | null;
+    if (!el) continue;
 
-      const el = document.querySelector(
-        `[data-setting-key="${s.key}"]`,
-      ) as HTMLElement;
-
-      if (!el) return;
-
-      el.style.display = shouldBeVisible ? "block" : "none";
-    });
-  });
+    el.style.display = shouldBeVisible ? "block" : "none";
+  }
 }

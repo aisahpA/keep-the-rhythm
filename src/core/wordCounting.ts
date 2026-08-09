@@ -14,22 +14,14 @@ const UNICODE_RANGES = {
 	NUMERIC: "0-9",
 } as const;
 
-const WS_RE = /\s+/g;
+const NON_WS_RE = /\S/;
 
 let cachedRegex: RegExp | null = null;
 let cachedLangKey: string | null = null;
 
 export function getWordCount(text: string, regex: RegExp): number {
-	if (!text?.trim()) return 0;
-
-	text = text.replace(WS_RE, " ").trim();
-
-	try {
-		return (text.match(regex) || []).length;
-	} catch (error) {
-		console.error("Error counting words:", error);
-		return 0;
-	}
+	if (!text || !NON_WS_RE.test(text)) return 0;
+	return (text.match(regex) || []).length;
 }
 
 export function createRegex(langs: Language[]): RegExp {

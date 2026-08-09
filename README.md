@@ -1,12 +1,14 @@
-# Keep the Rhythm
+# Keep the Rhythm2
 
-Keep the Rhythm is an Obsidian plugin that helps you maintain a consistent writing habit by tracking your daily word count, setting writing goals and visualizing data through a heatmap and customizable code blocks.
+Keep the Rhythm2 is an Obsidian plugin that helps you maintain a consistent writing habit by tracking your daily word count, setting writing goals and visualizing data through a heatmap and customizable code blocks.
+
+> This branch is a major internal rework compared to upstream `keep-the-rhythm` **v0.2.12** (commit `440c357`). It is distributed under the new id `keep-the-rhythm2` (v0.5.0). See [What Changed vs. v0.2.12](#what-changed-vs-v0212) for a summary of the differences.
 
 ![image](https://github.com/user-attachments/assets/8acd047d-68da-42d0-835d-6c7ab55b6f65)
 
 ## Features
 
-- **Writing Stats**: Automatically tracks how many words/characters you write each day in Obsidian
+- **Writing Stats**: Automatically tracks how many words you write each day in Obsidian
 
 - **Goals & Streaks**: Set daily writing goals and track your streak of consecutive days meeting your target
 
@@ -17,21 +19,17 @@ Keep the Rhythm is an Obsidian plugin that helps you maintain a consistent writi
 - **Embedded Components**: Insert heatmaps, slots, and entries widgets into any note using custom code blocks
 - **Advanced Filtering**: Filter your writing statistics with the query syntax for specific folders or file patterns
 - **Tracking Scope**: Restrict all tracking to a subset of the vault by listing folders (see [Tracking Scope](#tracking-scope))
-
 - **Multi-device Sync**: Syncs and merges statistics across different devices
+- **Compressed Storage**: Historical data is dictionary-encoded (file paths → small IDs), cutting persisted size by ~60–65% for multi-month histories (see [Storage](#storage-and-migration))
 
 ## Installation
-
-#### RECOMMENDED!
-
-Install through the Community Plugins section in Obsidian's settings
 
 #### MANUAL INSTALLATION
 
 Download the latest release files from this repository's Releases section
-Create a folder at /.obsidian/plugins/ named keep-the-rhythm
+Create a folder at /.obsidian/plugins/ named keep-the-rhythm2
 Reload Obsidian
-Go to Settings > Community Plugins and enable "Keep the Rhythm"
+Go to Settings > Community Plugins and enable "Keep the Rhythm2"
 
 ---
 
@@ -39,11 +37,11 @@ Go to Settings > Community Plugins and enable "Keep the Rhythm"
 
 ### Basic Usage
 
-Once installed and enabled, Keep the Rhythm will automatically begin tracking your writing activity. To view your statistics:
+Once installed and enabled, Keep the Rhythm2 will automatically begin tracking your writing activity. To view your statistics:
 
-1. Click the Keep the Rhythm icon in the left sidebar or use the command `Open sidebar view`
+1. Click the Keep the Rhythm2 icon in the left sidebar or use the command `Open sidebar view`
 2. The plugin panel displays your heatmap, current statistics, and today's entries
-3. Set up your preferred units and data points by hovering and clicking on each slot
+3. Set up your preferred data points by hovering and clicking on each slot
 4. Hover over any cell to see the exact word count of that day
 
 ### Writing Goals
@@ -51,7 +49,7 @@ Once installed and enabled, Keep the Rhythm will automatically begin tracking yo
 Set and track your daily writing goals:
 
 1. Define your target word count per day in the plugin's settings
-2. Keep the Rhythm will track your streak of consecutive days meeting your goal
+2. Keep the Rhythm2 will track your streak of consecutive days meeting your goal
 3. View your current streak in the sidebar or through embedded slots
 
 > You can force the plugin to check previous dates when you change your writing goal by using the command `Check streak`
@@ -93,12 +91,13 @@ Customize your heatmap appearance with various options:
 
 Display various writing statistics using customizable slots:
 
-- Current: CURRENT_FILE, CURRENT_DAY, CURRENT_WEEK, CURRENT_MONTH, CURRENT_YEAR
+- Current: CURRENT_DAY, CURRENT_WEEK, CURRENT_MONTH, CURRENT_YEAR
     - These are dynamic ranges calculated based on the start of the day/week/year
 - Historical Stats: LAST_DAY, LAST_WEEK, LAST_MONTH, LAST_YEAR
-    - These are calculated based on discrete ranges (24h, 7d, 30d, 365d)
+    - These are calculated based on discrete ranges (2d, 7d, 30d, 365d)
 - Goal Tracking: CURRENT_STREAK
-- Vault Overview: WHOLE_VAULT
+
+> Note: `CURRENT_FILE` and `WHOLE_VAULT` were removed in this branch.
 
 ### Code Blocks
 
@@ -111,7 +110,7 @@ Keep the Rhythm provides three types of embeddable code blocks.
 Embed customizable heatmaps with filtering and display options:
 
 ````
-```js
+```ktr-heatmap
 filePath starts_with "journal"
 
 OPTIONS                                    // must always start with the OPTIONS header
@@ -142,10 +141,9 @@ Display inline statistics with customizable metrics:
 
 ````
 ```ktr-slots
-CURRENT_WEEK, WORDS
-CURRENT_DAY, CHARS
+CURRENT_WEEK
+CURRENT_DAY, WORDS
 CURRENT_STREAK
-WHOLE_VAULT
 CURRENT_MONTH, WORDS, AVG
 CURRENT_YEAR
 ```
@@ -153,22 +151,19 @@ CURRENT_YEAR
 
 Available Slots:
 
-- CURRENT_FILE: displays the current file count
 - CURRENT_STREAK: displays the amount of sequential days where writing goal was completed
 - CURRENT_DAY: displays the amount written from the start of the day until now
 - CURRENT_WEEK: displays the amount from the start of the week (currently defined as Monday, I'll add a setting soon)
 - CURRENT_MONTH: displays the amount from the start of the month
 - CURRENT_YEAR: displays the amount from the start of the year
-- LAST_DAY: amount written in the last 24 hours
+- LAST_DAY: amount written in the last 2 days
 - LAST_WEEK: amount written in the last 7 days
 - LAST_MONTH: amount written in the last 30 days
 - LAST_YEAR: amount written in the last 365 days
-- WHOLE_VAULT: amount written in every markdown file in the vault
 
 **Options**:
 
-- Specify WORDS or CHARS for the count unit
-- Add AVG for average calculations where applicable
+- Add AVG for average calculations where applicable (only word counts are tracked; `CHARS` was removed)
 
 #### Daily Entries (`ktr-entries`)
 
@@ -176,7 +171,7 @@ Display writing activity for specific dates:
 
 ````
 ```ktr-entries
-2024-03-15
+2026-08-01
 ```
 ````
 
@@ -187,12 +182,52 @@ Shows the activity for the specified date (`YYYY-MM-DD` format). If no date is p
 Access comprehensive customization options through the plugin settings:
 
 - Set daily writing goals and track streaks
-- Configure heatmap appearance (coloring, cell shapes, labels)
+- Configure heatmap appearance (coloring, cell shapes, labels, custom start date)
+- Configure which writing systems to count (`Enabled Languages`, including `Chinese` / CJK)
+- Set an **Editor Change Sample Delay** (seconds to wait after typing stops before sampling content)
+- Manage **Tracked Folders** via a dedicated popup manager
 - Toggle visibility of different plugin components
+- Configure automatic backups
+
+## Storage and Migration
+
+Data is stored **locally** in `data.json` inside the plugin's data folder — nothing is sent to external servers.
+
+Since this branch, historical activity is stored as a **dictionary-encoded** map: file paths are replaced by small integer IDs in `days`, and a separate `fileDict` maps IDs back to paths. `today` activity is kept in a separate partition (`todayBaselines`). This reduces the size of multi-month histories by roughly 60–65%.
+
+Old-format data (from the Dexie-based v0.2.12 / `440c357`) is **migrated automatically** on load — you don't need to do anything manually.
+
+## What Changed vs. v0.2.12
+
+This branch is a large internal rework of the upstream `keep-the-rhythm` (commit `440c357`, v0.2.12). The plugin is now published as **Keep the Rhythm2** (`keep-the-rhythm2`, v0.5.0). Highlights:
+
+**Architecture & storage**
+- Removed the **Dexie** database (`src/db/`) in favor of a single JSON file (`data.json`) with dictionary-encoded, cache-friendly structures.
+- Replaced the manual event/refresh system with a **Zustand store** (`src/core/store.ts`) for centralized, reactive state.
+- Split activity into **today** and **historical** partitions with separate caches, and removed the redundant per-day rows in favor of a `wordsAdded`/`charsAdded` shape.
+- Added a dedicated **stats codec** (`src/core/statsCodec.ts`) that owns the persisted ↔ runtime shape and transparently migrates legacy data.
+- Added new modules for persistence (`dataPersistence.ts`), queries (`dataQueries.ts`), and external multi-device sync (`externalSync.ts`).
+- Dropped the `moment` dependency in favor of native date utilities.
+
+**Removed features**
+- `CURRENT_FILE` and `WHOLE_VAULT` slots.
+- Character (`CHARS`) counting and the unit selector — only **word counts** are tracked now.
+- Repository-scoped code (`pluginState.ts`, `devUtils.ts`, `migrateData.ts`).
+
+**Added / improved**
+- **Tracked Folders** setting with a popup manager (`TrackedFoldersSetting.ts`) and path-filtering cache, to restrict tracking to a subset of the vault.
+- **Editor Change Sample Delay** setting (seconds to wait after typing stops before sampling content) with adjustable JSON persistence debounce (2000 ms).
+- **Chinese** option in Enabled Languages (LATIN + CJK scripts).
+- Automatic **backups** (`backup.ts`).
+- Caching & `React.memo` throughout heatmap, entries, tooltip and slots to reduce re-renders.
+- Heatmap option to align cells left; `LAST_DAY` now reports the last **2 days** instead of 24 hours.
+- Active-file tracking with an `activeFiles` set for efficient rename handling.
+
+> Note: this branch is **not interchangeable** data-wise with v0.2.12 for the storage format, but legacy Dexie data is migrated automatically on first load. If you previously used v0.2.12, your history will be preserved.
 
 ## Data and Privacy
 
-Keep the Rhythm **stores all data locally** in your Obsidian vault. No data is sent to external servers. Your writing statistics are saved in a JSON file within the plugin's data directory.
+Keep the Rhythm2 **stores all data locally** in your Obsidian vault. No data is sent to external servers. Your writing statistics are saved in a JSON file within the plugin's data directory.
 
 ## Support
 
@@ -207,3 +242,11 @@ If you encounter any issues or have suggestions for improvements, please:
 
 I built this plugin after finding that Better Word Count, while useful, had issues with Obsidian Sync - stats would get overwritten when switching between devices.
 Keep the Rhythm solves this by properly saving and merging data across devices, ensuring your writing progress is always accurately tracked!
+
+#### Why is there a separate version (Keep the Rhythm2)?
+
+This branch exists to address two key limitations of the original plugin:
+
+- **Performance**: As writing history grows over months and years, the original architecture became increasingly slow. Activity data was stored as a flat array of rows, causing the plugin to reprocess large datasets on every interaction. Keep the Rhythm2 replaces this with a Zustand-based reactive store and dictionary-encoded storage, dramatically reducing re-renders and lookup times.
+
+- **Storage efficiency**: The original format not only duplicated full file paths on every activity entry, but also stored per-file, per-5-minute word-count deltas — creating a massive volume of fine-grained records that grew quickly. Keep the Rhythm2 eliminates this overhead by removing redundant delta tracking, replacing it with dictionary-encoded daily aggregates and split hot/cold partitions. The net result is a reduction of well over 60% in `data.json` size for long-term users — while preserving all meaningful writing history through automatic migration.

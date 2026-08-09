@@ -1,4 +1,72 @@
-import { DailyActivity } from "@/db/types";
+/**
+ * Virtual activity row: the "object-shaped" view of a (date, filePath)
+ * activity entry used by the UI and the codeblock query engine.  It is
+ * never stored as-is; the persisted form is numeric maps (see
+ * `DayActivityMap` / `PersistedBaselines` below) encoded by statsCodec.ts.
+ */
+export interface ActivityRecord {
+	date: string;
+	filePath: string;
+	wordsAdded: number;
+}
+
+/**
+ * One day's activity in memory/on disk: filePath -> words added that day.
+ */
+export type DayActivityMap = Record<string, number>;
+
+/**
+ * All activity days keyed by date (docs: today included).  The date's map
+ * is the same shape regardless of whether it is today or a past day —
+ * nothing distinguishes "live" rows at the storage level; the live anchor
+ * (starting word count) lives separately in `todayBaselines`.
+ */
+export type DaysMap = Record<string, DayActivityMap>;
+
+/**
+ * Dictionary-encoded variant of DayActivityMap used on disk only.
+ * Keys are numeric string IDs (JSON object keys are always strings)
+ * mapped to real file paths via PersistedFileDict.
+ *
+ *   persisted:  { "0": 500, "1": 300, ... }
+ *   runtime:    { "Notes/a.md": 500, "Notes/b.md": 300, ... }
+ */
+export type PersistedDayActivityMap = Record<string, number>;
+
+/** Dictionary-encoded variant of DaysMap used on disk only. */
+export type PersistedDaysMap = Record<string, PersistedDayActivityMap>;
+
+/**
+ * On-disk file path → numeric ID mapping.  Object form so path→ID is
+ * O(1) at encode time and merge-by-path during external sync is trivial.
+ */
+export type PersistedFileDict = Record<string, number>;
+
+/**
+ * Persisted baselines for the CURRENT day only (`stats.todayBaselines`).
+ *
+ * The baseline of a file is its word count at the first moment it was
+ * touched today; live deltas are computed as `editorCount - baseline`.
+ * Once a day rolls over the baselines become dead weight and are
+ * discarded (`day` lets the loader detect a stale copy, e.g. when the
+ * app slept through midnight).
+ */
+export interface PersistedBaselines {
+	/** Date the baselines were recorded. */
+	day: string;
+	/** filePath -> initial word count of the file for that day. */
+	baselines: Record<string, number>;
+}
+
+/**
+ * Legacy row shape. Only read during migration to the `days` format.
+ */
+export interface LegacyActivityData {
+	date: string;
+	filePath: string;
+	wordCountStart: number;
+	wordsAdded: number;
+}
 
 export enum CalculationType {
 	TOTAL = "TOTAL",
@@ -36,14 +104,8 @@ export interface ThemeColors {
 	dark: ColorConfig;
 }
 
-export enum Unit {
-	CHAR = "CHAR",
-	WORD = "WORD",
-}
-
 export enum TargetCount {
-	CURRENT_FILE = "CURRENT_FILE",
-	CURRENT_STREAK = "CURRENT_STREAK", // not done yet
+	CURRENT_STREAK = "CURRENT_STREAK",
 	CURRENT_DAY = "CURRENT_DAY", // Add progress bar towards daily goal
 	CURRENT_WEEK = "CURRENT_WEEK",
 	CURRENT_MONTH = "CURRENT_MONTH",
@@ -52,8 +114,6 @@ export enum TargetCount {
 	LAST_WEEK = "LAST_WEEK",
 	LAST_MONTH = "LAST_MONTH",
 	LAST_YEAR = "LAST_YEAR",
-	WHOLE_VAULT = "WHOLE_VAULT", // not done yet
-	// THIS_FOLDER = "THIS_FOLDER", //not done yet
 }
 
 export enum HeatmapColorModes {
@@ -64,7 +124,13 @@ export enum HeatmapColorModes {
 }
 
 export interface Settings {
-	dailyWritingGoal: number; // created as setting, not used anywhere yet
+	dailyWritingGoal: number;
+	/**
+	 * Debounce delay for sampling editor content on keystroke, in seconds.
+	 * After the user stops typing for this long, the current editor state
+	 * is read and word deltas are computed.
+	 */
+	editorChangeSampleDelay: number;
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
 	/**
 	 * Optional list of folder path prefixes. When non-empty, only files whose
@@ -95,7 +161,6 @@ export interface Settings {
 export interface SlotConfig {
 	index: number;
 	option: TargetCount;
-	unit: Unit;
 	calc: CalculationType;
 }
 
@@ -104,25 +169,32 @@ export interface PluginData {
 	migratedPreviousVersion?: boolean;
 	schema?: "0.2" | "0.3" | string;
 	stats?: {
-		currentStreak?: number;
-		highestStreak?: number;
-		highestStreakStartDate?: string;
-		highestStreakEndDate?: string;
-		daysWithCompletedGoal?: string[];
-		dailyActivity: DailyActivity[];
-		wholeVaultWordCount?: number;
-		wholeVaultCharCount?: number;
+		/**
+		 * Path → numeric ID dictionary for the dictionary-encoded `days`
+		 * format.  Present (and valid) only when `days` uses numeric
+		 * keys; absent in the legacy plain-path format.
+		 */
+		fileDict?: PersistedFileDict;
+		/**
+		 * date → filePath → words added that day. Includes the current
+		 * day; yesterday-and-older rows only carry the added count (the
+		 * per-file wordCountStart lives exclusively in `todayBaselines`).
+		 *
+		 * On disk this may be dictionary-encoded (keys are numeric IDs,
+		 * with `fileDict` providing the path mapping).  At runtime it is
+		 * always expanded to full paths — the decode step in statsCodec
+		 * handles both shapes transparently.
+		 */
+		days?: Record<string, DayActivityMap> | PersistedDaysMap;
+		/** Baselines for today's live files (see PersistedBaselines).
+		 *  Same dictionary-encoding rule as `days`: keys are numeric IDs
+		 *  when `fileDict` is present, file paths otherwise. */
+		todayBaselines?: PersistedBaselines;
+		/** Legacy v1.x storage — migrated into `days` on load. */
+		dailyActivity?: LegacyActivityData[];
 	};
 }
 
-export const STARTING_STATS = {
-	currentStreak: 0,
-	highestStreak: 0,
-	highestStreakStartDate: "",
-	highestStreakEndDate: "",
-	daysWithCompletedGoal: [],
-	dailyActivity: [],
-};
 
 export interface HeatmapConfig {
 	numberOfWeeks?: number;
@@ -145,6 +217,7 @@ export interface HeatmapConfig {
 export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
+	editorChangeSampleDelay: 2,
 	trackedFolders: [],
 	startOfTheWeek: "SUNDAY",
 	heatmapNavigation: true,
@@ -187,26 +260,23 @@ export const DEFAULT_SETTINGS: Settings = {
 			{
 				index: 0,
 				option: TargetCount.CURRENT_DAY,
-				unit: Unit.WORD,
 				calc: CalculationType.TOTAL,
 			},
 			{
 				index: 1,
 				option: TargetCount.CURRENT_WEEK,
-				unit: Unit.WORD,
 				calc: CalculationType.TOTAL,
 			},
 			{
 				index: 2,
 				option: TargetCount.LAST_MONTH,
-				unit: Unit.WORD,
 				calc: CalculationType.AVG,
 			},
 		],
 	},
 	backupConfig: {
 		enabled: true,
-		folderPath: ".keep-the-rhythm",
+		folderPath: ".keep-the-rhythm2",
 		maxNumberOfBackups: 3,
 	},
 };

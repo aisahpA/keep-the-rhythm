@@ -1,80 +1,99 @@
-import { getDateBasedOnIndex } from "@/utils/dateUtils";
+import { getCurrentWeekDates } from "@/utils/dateUtils";
 import React from "react";
 import { setIcon } from "obsidian";
-import { useState, useEffect, useRef } from "react";
+import { useRef, useMemo, useCallback } from "react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 
-import { getCurrentCount } from "@/db/queries";
+import { getCurrentCount, selectTodayVersion, selectHistoricalVersion } from "@/core/dataQueries";
+import { getDailySummaryMap } from "@/utils/dailySummaryCache";
 import { CalculationType } from "@/defs/types";
 import { Tooltip } from "./Tooltip";
 import { getSlotLabel, weekdaysNames } from "../texts";
-import { TargetCount, SlotConfig, Unit } from "@/defs/types";
-import { EVENTS, state } from "@/core/pluginState";
+import { TargetCount, SlotConfig } from "@/defs/types";
+import { useStore } from "@/core/store";
 
-export const Slot = ({
+const TARGET_COUNTS = Object.values(TargetCount);
+
+export const Slot = React.memo(function Slot({
 	index,
 	option,
-	unit,
 	calc,
 	onDelete,
 	isCodeBlock,
 }: SlotConfig & {
 	onDelete: (index: number) => void;
 	isCodeBlock?: boolean;
-}) => {
-	// TODO: should probably make something that stores data that's not from today so its only udpated on refresh everything!
+}) {
+	// No local mirror: read directly from props.  The previous useState
+	// mirror was redundant (every toggle already called setOptionType /
+	// setCalcType) and would silently drift out of sync if the store was
+	// mutated externally (e.g. by another codeBlock).
+	const optionType = option;
+	const calcMode = calc;
 
-	const [value, setValue] = useState<number | string>(0);
-	const [unitType, setUnitType] = useState<Unit>(unit);
-	const [optionType, setOptionType] = useState<TargetCount>(option);
-	const [calcMode, setCalcType] = useState<CalculationType>(calc);
-	const [progressValue, setProgressValue] = useState<number>(0);
-	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+	const typeButtonRef = useRef<HTMLButtonElement | null>(null);
+	const calcButtonRef = useRef<HTMLButtonElement | null>(null);
 
-	const deleteButtonRef = useRef<HTMLButtonElement>(null);
-	const unitButtonRef = useRef<HTMLButtonElement>(null);
-	const typeButtonRef = useRef<HTMLButtonElement>(null);
-	const calcButtonRef = useRef<HTMLButtonElement>(null);
+	// Reactive slices of the store the slot's value depends on.  Each
+	// selector re-renders the component only when that slice changes,
+	// replacing the old SETTINGS_CHANGED / DAY_CHANGED / HISTORY_DATA_CHANGED
+	// event listeners.
+	const todayVersion = useStore(selectTodayVersion);
+	const historicalVersion = useStore(selectHistoricalVersion);
+	const dailyWritingGoal = useStore((s) => s.settings.dailyWritingGoal);
+	const mutateSettings = useStore((s) => s.mutateSettings);
 
-	const TargetCounts = Object.values(TargetCount);
-	const plugin = state.plugin;
+	// useLiveQuery is gone — getCurrentCount reads useStore.getState()
+	// synchronously, so we just memoize on the slices the count depends on.
+	// Using version numbers instead of the dailyActivity array reference
+	// avoids unnecessary recomputation when only unrelated entries change.
+	const value = useMemo(
+		() => getCurrentCount(optionType, calcMode),
+		[optionType, calcMode, todayVersion, historicalVersion, dailyWritingGoal],
+	);
 
-	const unitSupportingText = () => {
+	const unitText = () => {
 		if (optionType === TargetCount.CURRENT_STREAK) {
 			return "days";
 		} else {
-			return unitType.toLowerCase() + "s";
+			return "words";
 		}
 	};
 
-	/** SETUP BUTTON ICONS USING OBSIDIAN UTILITY */
-	if (calcButtonRef.current) {
-		const icon = calcMode == "TOTAL" ? "chart-spline" : "sigma";
-		setIcon(calcButtonRef.current, icon);
-	}
-	if (unitButtonRef.current) {
-		setIcon(unitButtonRef.current, "case-sensitive");
-	}
-	if (typeButtonRef.current) {
-		setIcon(typeButtonRef.current, "list");
-	}
-	if (deleteButtonRef.current) {
-		setIcon(deleteButtonRef.current, "x");
-	}
-
-	if (calcButtonRef.current) {
-		const icon = calcMode == "TOTAL" ? "chart-spline" : "sigma";
-		setIcon(calcButtonRef.current, icon);
-	}
-
 	const showCalcType =
-		optionType !== TargetCount.CURRENT_FILE &&
 		optionType !== TargetCount.CURRENT_DAY &&
 		optionType !== TargetCount.LAST_DAY &&
-		optionType !== TargetCount.WHOLE_VAULT &&
 		optionType !== TargetCount.CURRENT_STREAK;
-	// useEffect(() => {
-	// }, [calcMode, optionType]);
+
+	// Ref callbacks with dataset guard: setIcon only fires once per DOM
+	// node, not on every re-render or effect cycle (React 18 strict mode
+	// double-invokes effects, and refs that are JSX inline functions get
+	// torn down/re-attached on every render).  setIcon is a non-trivial
+	// DOM op (creates an <svg>), so the dedup matters.
+	const setCalcButtonIcon = useCallback(
+		(el: HTMLButtonElement | null) => {
+			if (!el || el.dataset.iconSet === calcMode) return;
+			setIcon(el, calcMode === "TOTAL" ? "chart-spline" : "sigma");
+			el.dataset.iconSet = calcMode;
+		},
+		[calcMode],
+	);
+
+	const setTypeButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (!el || el.dataset.iconSet) return;
+		setIcon(el, "list");
+		el.dataset.iconSet = "1";
+	}, []);
+
+	const setDeleteButtonIcon = useCallback(
+		(el: HTMLButtonElement | null) => {
+			if (!el || el.dataset.iconSet) return;
+			setIcon(el, "x");
+			el.dataset.iconSet = "1";
+		},
+		[],
+	);
 
 	const toggleCalculation = () => {
 		const newCalc =
@@ -82,80 +101,38 @@ export const Slot = ({
 				? CalculationType.AVG
 				: CalculationType.TOTAL;
 
-		if (plugin?.data?.settings) {
-			plugin.data.settings.sidebarConfig.slots[index].calc = newCalc;
-			plugin.quietSave();
-		}
-
-		setCalcType(newCalc);
-	};
-
-	const toggleUnit = () => {
-		const newUnit: Unit = unitType === Unit.WORD ? Unit.CHAR : Unit.WORD;
-
-		if (plugin?.data?.settings) {
-			plugin.data.settings.sidebarConfig.slots[index].unit = newUnit;
-			plugin.quietSave();
-		}
-		setUnitType(newUnit);
+		// Persist the new calc mode into settings (mutateSettings syncs
+		// the store + saves to data.json, replacing plugin.quietSave()).
+		mutateSettings((draft) => {
+			draft.sidebarConfig.slots[index].calc = newCalc;
+		});
 	};
 
 	const toggleSlotType = () => {
-		const currentIndex = TargetCounts.indexOf(optionType);
-		const nextIndex = (currentIndex + 1) % TargetCounts.length;
-		const newOption = TargetCounts[nextIndex];
+		const currentIndex = TARGET_COUNTS.indexOf(optionType);
+		const nextIndex = (currentIndex + 1) % TARGET_COUNTS.length;
+		const newOption = TARGET_COUNTS[nextIndex];
 
-		if (plugin && plugin.data && plugin.data.settings) {
-			plugin.data.settings.sidebarConfig.slots[index].option = newOption;
-			plugin.quietSave();
-		}
-
-		setOptionType(newOption);
+		mutateSettings((draft) => {
+			draft.sidebarConfig.slots[index].option = newOption;
+		});
 	};
 
-	const updateData = async () => {
-		if (
-			optionType == TargetCount.WHOLE_VAULT &&
-			(plugin.data.stats?.wholeVaultWordCount === undefined ||
-				plugin.data.stats?.wholeVaultCharCount === undefined)
-		)
-			setIsLoading(true);
-		try {
-			const v = await getCurrentCount(unitType, optionType, calcMode);
-			if (optionType === TargetCount.CURRENT_DAY) {
-				const newProgress =
-					(v / state.plugin.data.settings.dailyWritingGoal) * 100;
+	const progressValue =
+		optionType === TargetCount.CURRENT_DAY && dailyWritingGoal > 0
+			? Math.min(((value ?? 0) / dailyWritingGoal) * 100, 100)
+			: 0;
 
-				setProgressValue(Math.min(newProgress, 100));
-			}
-			setValue(v);
-		} catch (error) {
-			console.error(error);
-		} finally {
-			if (optionType == TargetCount.WHOLE_VAULT) setIsLoading(false);
-		}
-	};
-
-	useEffect(() => {
-		state.off(EVENTS.REFRESH_EVERYTHING, updateData);
-		state.on(EVENTS.REFRESH_EVERYTHING, updateData);
-
-		updateData();
-
-		return () => {
-			state.off(EVENTS.REFRESH_EVERYTHING, updateData);
-		};
-	}, [unitType, optionType, calcMode]);
-
-	function isDayCompleted(dayIndex: number) {
-		const date = getDateBasedOnIndex(dayIndex);
-		const data = state.plugin.data.stats?.daysWithCompletedGoal;
-
-		if (data && data.includes(date)) {
-			return true;
-		}
-		return false;
-	}
+	// Memoize the 7-day completion states for CURRENT_WEEK view.
+	// Computes getDailySummaryMap() once (not 7×) and caches the
+	// week's date lookups. Recomputes only when the date or relevant
+	// data versions change.
+	const weekDayCompletedStates = useMemo<boolean[]>(() => {
+		if (optionType !== TargetCount.CURRENT_WEEK) return [];
+		const map = getDailySummaryMap();
+		const weekDates = getCurrentWeekDates();
+		return weekDates.map((date) => (map[date] ?? 0) >= dailyWritingGoal);
+	}, [optionType, todayVersion, historicalVersion, dailyWritingGoal]);
 
 	return (
 		<div className="slot">
@@ -174,7 +151,10 @@ export const Slot = ({
 								>
 									<button
 										className="KTR-min-button"
-										ref={calcButtonRef}
+										ref={(el) => {
+											calcButtonRef.current = el;
+											setCalcButtonIcon(el);
+										}}
 										onClick={() => {
 											toggleCalculation();
 										}}
@@ -182,19 +162,13 @@ export const Slot = ({
 								</Tooltip>
 							)}
 
-							<Tooltip content="Change Unit">
-								<button
-									className="KTR-min-button"
-									ref={unitButtonRef}
-									onClick={() => {
-										toggleUnit();
-									}}
-								></button>
-							</Tooltip>
 							<Tooltip content="Change Type">
 								<button
 									className="KTR-min-button"
-									ref={typeButtonRef}
+									ref={(el) => {
+										typeButtonRef.current = el;
+										setTypeButtonIcon(el);
+									}}
 									onClick={() => {
 										toggleSlotType();
 									}}
@@ -203,7 +177,10 @@ export const Slot = ({
 							<Tooltip content="Delete">
 								<button
 									className="KTR-min-button"
-									ref={deleteButtonRef}
+									ref={(el) => {
+										deleteButtonRef.current = el;
+										setDeleteButtonIcon(el);
+									}}
 									onClick={() => {
 										onDelete(index);
 									}}
@@ -213,30 +190,25 @@ export const Slot = ({
 					</div>
 				)}
 			</div>
-			{isLoading ? (
-				<div className="slot__data-loading">Loading...</div>
-			) : (
-				<div className="slot__data">
-					<div className="slot__value">{value.toLocaleString()}</div>
-					<div className="slot__unit">
-						{unitSupportingText()}
-						<span className="slot__unit-avg">
-							{showCalcType && calcMode == "AVG" ? "/day" : ""}
-						</span>
-					</div>
+			<div className="slot__data">
+				<div className="slot__value">{value.toLocaleString()}</div>
+				<div className="slot__unit">
+					{unitText()}
+					<span className="slot__unit-avg">
+						{showCalcType && calcMode == "AVG" ? "/day" : ""}
+					</span>
+				</div>
+			</div>
+			{optionType === TargetCount.CURRENT_DAY && (
+				<div className="today-progress-bar">
+					<div
+						className="progress"
+						style={{
+							width: progressValue + "%",
+						}}
+					></div>
 				</div>
 			)}
-			{optionType === TargetCount.CURRENT_DAY &&
-				unitType !== Unit.CHAR && (
-					<div className="today-progress-bar">
-						<div
-							className="progress"
-							style={{
-								width: progressValue + "%",
-							}}
-						></div>
-					</div>
-				)}
 			{optionType === TargetCount.CURRENT_WEEK && (
 				<div className="KTR-week-progress">
 					{weekdaysNames.map((_, index) => (
@@ -244,7 +216,7 @@ export const Slot = ({
 							key={index}
 							className={
 								"KTR-dot " +
-								(isDayCompleted(index) ? "completed" : "")
+								(weekDayCompletedStates[index] ? "completed" : "")
 							}
 						></div>
 					))}
@@ -252,4 +224,4 @@ export const Slot = ({
 			)}
 		</div>
 	);
-};
+});

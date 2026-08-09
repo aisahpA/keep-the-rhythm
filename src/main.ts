@@ -1,108 +1,49 @@
 import { ManualEntryModal } from "./ui/components/ManualEntry";
-import {
-	Plugin,
-	TFile,
-	TAbstractFile,
-	Notice,
-	moment as _moment,
-} from "obsidian";
+import { Plugin, TFile, TAbstractFile, moment as _moment } from "obsidian";
 
-import {
-	ColorConfig,
-	DEFAULT_SETTINGS,
-	STARTING_STATS,
-	PluginData,
-} from "@/defs/types";
-
-import { getDB, initDatabase } from "@/db/db";
-import { EVENTS, state } from "@/core/pluginState";
+import { setPlugin } from "@/core/pluginRegistry";
+import { useStore } from "@/core/store";
 import { PluginView, VIEW_TYPE } from "@/ui/views/PluginView";
-import { migrateDataFromOldFormat } from "@/utils/migrateData";
 import { SettingsTab } from "@/ui/settings/SettingsTab";
+import { applyHeatmapColorStyles } from "@/ui/styles/applyColorStyles";
 
-import { formatDate } from "@/utils/dateUtils";
-
-import * as utils from "@/utils/utils";
 import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
-import { checkPreviousStreak, activateSidebarView } from "@/core/commands";
-
-const moment = _moment as unknown as typeof _moment.default;
+import { activateSidebarView } from "@/core/commands";
+import { backupData } from "@/core/backup";
+import {
+	preparePersistData,
+	setupPersistenceScheduling,
+	PersistenceScheduler,
+} from "@/core/dataPersistence";
+import { handleExternalDataChange } from "@/core/externalSync";
+import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
+import { resetStatsCodecCache } from "@/core/statsCodec";
 
 export default class KeepTheRhythm extends Plugin {
-	data: PluginData = {
-		schema: "0.2",
-		settings: DEFAULT_SETTINGS,
-		stats: {
-			dailyActivity: [],
-		},
+	
+	private onFocusHandler: () => void = () => useStore.getState().checkDayChange();
+	private onPageHideHandler: () => void = () => void this.flushNow();
+	private onVisibilityHandler: () => void = () => {
+		if (document.hidden) void this.flushNow();
 	};
 
-	private onFocusHandler: (() => void) | null = null;
-	private JSON_DEBOUNCE_TIME = 1000;
-	private LAST_BREAKING_CHANGE_TO_SCHEMA = "0.2";
-
-	private JsonDebounceTimeout: any = null;
-	private _saveGen = 0;
-	private _isUnloading = false;
+	// Persistence scheduler with debounce state and unsubscribe handle
+	private persistenceScheduler: PersistenceScheduler | null = null;
 
 	async onload() {
-		state.setPlugin(this);
-		this.onFocusHandler = () => state.checkDayChange();
-		window.addEventListener("focus", this.onFocusHandler);
+		setPlugin(this);
 
-		initDatabase();
-
-		// todo: check if this is really necessary
-		await getDB().dailyActivity.clear(); // restarts DB to ensure data.json is the source of truth
-		// Must be awaited: otherwise this fire-and-forget clear() can resolve
-		// AFTER initializeDataFromJSON's bulkPut below, wiping the just-loaded
-		// data. The now-empty DB then gets persisted back to data.json and
-		// overwrites the good same-day backup with empty stats.
-
-		/////////
+		// No DB to initialise — the in-memory store is empty until
+		// we hydrate it from data.json below.
 		const loadedData = await this.loadData();
 
-		if (loadedData) {
-			// add setting to remove backups
-			try {
-				await this.backupDataToVaultFolder(loadedData);
-			} catch (err) {
-				console.error("KTR Error trying to create backup: ", err);
-			}
-		}
+		await backupData(loadedData, this.app);
 
-		/** Data is only loaded into dexie if it's the correct schema */
-		if (
-			loadedData &&
-			loadedData.schema == this.LAST_BREAKING_CHANGE_TO_SCHEMA
-		) {
-			await this.initializeDataFromJSON(loadedData);
-		} else if (
-			loadedData &&
-			loadedData.schema !== this.LAST_BREAKING_CHANGE_TO_SCHEMA
-		) {
-			new Notice("KTR: Migrating data from previous versions...");
-			await this.migrateDataFromJSON(loadedData);
-		} else if (!loadedData) {
-			this.data.schema = this.LAST_BREAKING_CHANGE_TO_SCHEMA;
-			this.data.stats = {
-				...STARTING_STATS,
-			};
-		} else {
-			this.data.stats = loadedData.stats;
-			this.data.settings = loadedData.settings;
-		}
-
-		await this.saveData(this.data);
-
-		// #endregion
-
-		state.setToday();
-
-		this.checkVaultCountStaleness();
-
-		// /** Set of utility functions that registers required objects and sets plugin state */
+		// Sync Zustand store with loaded data before any React
+		// component mounts.  After this point, store.settings /
+		// store.today are all populated.
+		useStore.getState().hydrateFromData(loadedData);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {
@@ -111,10 +52,86 @@ export default class KeepTheRhythm extends Plugin {
 
 		this.initializeCommands();
 		this.initializeEvents();
-		this.applyColorStyles();
+		this.initializeCodeBlocks();
+		applyHeatmapColorStyles(this.app.workspace.containerEl);
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		/** Registers CUSTOM CODE BLOCKS */
+		// The JSON save pipeline subscribes to the store's persistVersion
+		// counter, which is incremented (via requestPersist, rAF-coalesced)
+		// by the data layer after an in-memory mutation. Pure UI refresh
+		// never touches persistVersion, so it can't schedule a save — this
+		// prevents racing saves when only an in-memory activity object was
+		// mutated before flushChangesToJSON.
+		this.persistenceScheduler = setupPersistenceScheduling(this);
+
+		window.addEventListener("focus", this.onFocusHandler);
+		window.addEventListener("pagehide", this.onPageHideHandler);
+		document.addEventListener("visibilitychange", this.onVisibilityHandler);
+	}
+
+	/**
+	 * Drain any pending editor-change sample into the in-memory store
+	 * and immediately persist the store to data.json.  Used by the
+	 * visibilitychange / pagehide handlers (because requestAnimationFrame
+	 * is paused in background tabs) and during plugin unload so a
+	 * coalesced debounced save still lands on disk before the scheduler
+	 * is disposed.
+	 */
+	private async flushNow() {
+		await events.flushPendingEditorChange();
+		await this.persistenceScheduler?.flushNow();
+	}
+
+	private initializeCommands() {
+		this.addRibbonIcon("calendar-days", "Keep the Rhythm", () => {
+			activateSidebarView();
+		});
+
+		this.addCommand({
+			id: "open-keep-the-rhythm2",
+			name: "Open sidebar view",
+			callback: () => {
+				activateSidebarView();
+			},
+		});
+
+		this.addCommand({
+			id: "add-ktr-manual-entry",
+			name: "Add manual entry",
+			callback: () => {
+				new ManualEntryModal(this.app).open();
+			},
+		});
+	}
+
+	private initializeEvents() {
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				void events.handleFileOpen(leaf);
+			}),
+		);
+		this.registerEvent(
+			this.app.workspace.on("editor-change", (editor, info) => {
+				events.handleEditorChange(editor, info);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file: TAbstractFile) => {
+				if (file instanceof TFile) events.handleFileDelete(file);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on(
+				"rename",
+				(file: TAbstractFile, oldPath: string) => {
+					if (file instanceof TFile)
+						events.handleFileRename(file, oldPath);
+				},
+			),
+		);
+	}
+
+	private initializeCodeBlocks() {
 		this.registerMarkdownCodeBlockProcessor(
 			"ktr-heatmap",
 			codeBlocks.createHeatmapCodeBlock,
@@ -129,434 +146,38 @@ export default class KeepTheRhythm extends Plugin {
 			"ktr-entries",
 			codeBlocks.createEntriesCodeBlock,
 		);
-
-		state.on(EVENTS.REFRESH_EVERYTHING, async () => {
-			if (this._isUnloading) return;
-
-			if (this.JsonDebounceTimeout) {
-				clearTimeout(this.JsonDebounceTimeout);
-			}
-
-			this._saveGen++;
-			const gen = this._saveGen;
-			this.JsonDebounceTimeout = setTimeout(async () => {
-				if (gen !== this._saveGen) return; // stale — a newer save was scheduled or unload invalidated it
-				this.JsonDebounceTimeout = null;
-				await this.saveDataToJSON();
-			}, this.JSON_DEBOUNCE_TIME);
-		});
 	}
-
-	private async checkVaultCountStaleness() {
-		if (
-			this.data.stats?.wholeVaultWordCount !== undefined &&
-			this.data.stats?.wholeVaultCharCount !== undefined
-		) {
-			const recentActivity = await getDB()
-				.dailyActivity.orderBy("date")
-				.reverse()
-				.first();
-
-			if (recentActivity) {
-				const daysSinceLastActivity = moment().diff(
-					moment(recentActivity.date),
-					"days",
-				);
-				if (daysSinceLastActivity > 7) {
-					this.data.stats.wholeVaultWordCount = undefined;
-					this.data.stats.wholeVaultCharCount = undefined;
-					await this.saveData(this.data);
-				}
-			}
-		}
-	}
-
-	private async backupDataToVaultFolder(data: any) {
-		const backupConfig =
-			data.settings.backupConfig || this.data.settings.backupConfig;
-
-		// Check if backups are enabled
-		if (!backupConfig.enabled) {
-			console.log("KTR: Backups disabled, ignoring");
-			return;
-		}
-
-		const folderPath = backupConfig.folderPath || ".keep-the-rhythm";
-		const fileName = `backup-${formatDate(new Date())}-${data.schema}.json`;
-		const backupPath = `${folderPath}/${fileName}`;
-		const jsonData = JSON.stringify(data, null, 2);
-
-		const folderExists = await this.app.vault.adapter.exists(folderPath);
-
-		if (!folderExists) {
-			await this.app.vault.adapter.mkdir(folderPath);
-		}
-
-		const filesOnBackupsFolder =
-			await this.app.vault.adapter.list(folderPath);
-		const backupFiles = filesOnBackupsFolder.files.filter((f) =>
-			f.endsWith(".json"),
-		);
-
-		// Clean backups based on user preference
-		const maxBackups = backupConfig.maxNumberOfBackups || 3;
-		if (backupFiles.length >= maxBackups) {
-			await this.cleanOlderBackups(backupFiles, maxBackups);
-		}
-
-		// This if runs if the user has data from previous schemas, checking
-		// every backup to see if the data was already backed up and saving it otherwise.
-		if (data.schema !== "0.3") {
-			// Compare against all existing backups
-			for (const filePath of backupFiles) {
-				try {
-					if (!(await this.app.vault.adapter.exists(filePath))) {
-						console.error("File does not exist:", filePath);
-						return;
-					}
-					const contents =
-						await this.app.vault.adapter.read(filePath);
-					if (contents && contents === jsonData) {
-						return;
-					}
-				} catch (err) {
-					console.error("Failed to read file:", filePath, err);
-					return null;
-				}
-			}
-			// No identical backup found, save new one
-			await this.app.vault.adapter.write(backupPath, jsonData);
-			new Notice("KTR: New backup saved.");
-		} else {
-			await this.app.vault.adapter.write(backupPath, jsonData);
-			new Notice("KTR: First backup created.");
-		}
-	}
-
-	private async cleanOlderBackups(backupPaths: string[], maxBackups: number) {
-		const now = window.moment();
-
-		// Sort backups by date (newest first)
-		const backupsWithDates = backupPaths
-			.map((fullPath) => {
-				const fileName = fullPath.split("/").pop();
-				if (!fileName) return null;
-
-				// Match: backup-YYYY-MM-DD(-optionalSchema).json
-				const match = fileName.match(
-					/^backup-(\d{4}-\d{2}-\d{2})(?:-[\w\d.]+)?\.json$/,
-				);
-				if (!match) return null;
-
-				const dateStr = match[1];
-				const fileDate = window.moment(dateStr, "YYYY-MM-DD", true);
-
-				if (!fileDate.isValid()) {
-					console.warn(
-						`Skipping file with invalid date: ${fileName}`,
-					);
-					return null;
-				}
-
-				return { fullPath, fileName, fileDate };
-			})
-			.filter((item) => item !== null)
-			.sort((a, b) => b!.fileDate.valueOf() - a!.fileDate.valueOf());
-
-		// Keep only the most recent maxBackups, delete the rest
-		for (let i = maxBackups; i < backupsWithDates.length; i++) {
-			const backup = backupsWithDates[i];
-			if (!backup) continue;
-
-			const fileExists = await this.app.vault.adapter.exists(
-				backup.fullPath,
-			);
-			if (!fileExists) {
-				console.warn(`File already missing: ${backup.fullPath}`);
-				continue;
-			}
-
-			await this.app.vault.adapter.remove(backup.fullPath);
-			console.log(`Deleted old backup: ${backup.fileName}`);
-		}
-	}
-
-	private async migrateDataFromJSON(loadedData: any) {
-		const previousStats = migrateDataFromOldFormat(loadedData);
-		this.data.stats = previousStats.stats;
-		this.data.schema = "0.2";
-
-		if (this.data.stats) {
-			await getDB().dailyActivity.bulkAdd(this.data.stats.dailyActivity);
-		}
-	}
-
-	private async initializeDataFromJSON(loadedData: PluginData) {
-		if (loadedData.settings) {
-			this.data.settings = {
-				...DEFAULT_SETTINGS,
-				...loadedData.settings,
-			};
-		}
-		if (loadedData.stats) {
-			this.data.stats = loadedData.stats;
-			await checkPreviousStreak();
-
-			const dailyActivitiesFromJSON =
-				this.data.stats?.dailyActivity || [];
-
-			// Migrate legacy `changes: TimeEntry[]` to flat `wordsAdded` /
-			// `charsAdded` fields.  Old entries are summed; new entries are
-			// passed through unchanged.
-			for (const activity of dailyActivitiesFromJSON as any[]) {
-				if (activity.changes) {
-					activity.wordsAdded = activity.changes.reduce(
-						(sum: number, c: any) => sum + (c.w || 0),
-						0,
-					);
-					activity.charsAdded = activity.changes.reduce(
-						(sum: number, c: any) => sum + (c.c || 0),
-						0,
-					);
-					delete activity.changes;
-				}
-				if (activity.wordsAdded === undefined) activity.wordsAdded = 0;
-				if (activity.charsAdded === undefined) activity.charsAdded = 0;
-			}
-
-			try {
-				/** BulkPut updates the records if they already exist! */
-				await getDB().dailyActivity.bulkPut(dailyActivitiesFromJSON);
-			} catch (error) {
-				console.error(
-					"Failed loading some data, contact the developer.",
-					error,
-				);
-			}
-		}
-	}
-
-	public applyColorStyles() {
-		const containerStyle = this.app.workspace.containerEl.style;
-		let light = undefined;
-		let dark = undefined;
-
-		if (this.data.settings?.heatmapConfig?.colors) {
-			light = this.data.settings.heatmapConfig.colors?.light;
-			dark = this.data.settings.heatmapConfig.colors?.dark;
-		}
-
-		if (light && dark) {
-			for (let i = 0; i <= 4; i++) {
-				const key = i as keyof ColorConfig;
-				containerStyle.setProperty(`--light-${i}`, light[key]);
-				containerStyle.setProperty(`--dark-${i}`, dark[key]);
-			}
-		}
-	}
-
-	private initializeCommands() {
-		this.addRibbonIcon("calendar-days", "Keep the Rhythm", () => {
-			activateSidebarView();
-		});
-
-		this.addCommand({
-			id: "open-keep-the-rhythm",
-			name: "Open sidebar view",
-			callback: () => {
-				activateSidebarView();
-			},
-		});
-
-		this.addCommand({
-			id: "add-ktr-manual-entry",
-			name: "Add manual entry",
-			callback: () => {
-				new ManualEntryModal(state.plugin.app).open();
-			},
-		});
-
-		this.addCommand({
-			id: "check-ktr-streak",
-			name: "Check writing goal from previous days",
-			callback: () => {
-				checkPreviousStreak();
-			},
-		});
-	}
-
-	private initializeEvents() {
-		this.registerEvent(
-			this.app.workspace.on("editor-change", (editor, info) => {
-				events.handleEditorChange(editor, info, this);
-			}),
-		);
-		this.registerEvent(
-			this.app.vault.on("delete", (file: TAbstractFile) => {
-				if (file instanceof TFile) events.handleFileDelete(file);
-			}),
-		);
-		this.registerEvent(
-			this.app.vault.on("create", (file: TAbstractFile) => {
-				if (file instanceof TFile) events.handleFileCreate(file);
-			}),
-		);
-		this.registerEvent(
-			this.app.vault.on(
-				"rename",
-				(file: TAbstractFile, oldPath: string) => {
-					if (file instanceof TFile)
-						events.handleFileRename(file, oldPath);
-				},
-			),
-		);
-		this.registerEvent(
-			this.app.workspace.on("file-open", (file) => {
-				if (file) events.handleFileOpen(file);
-			}),
-		);
-	}
-
-	// #endregion
 
 	// #region Unloading
 
 	async onunload() {
-		this._isUnloading = true;
+		window.removeEventListener("focus", this.onFocusHandler);
+		window.removeEventListener("pagehide", this.onPageHideHandler);
+		document.removeEventListener("visibilitychange", this.onVisibilityHandler);
 
-		// Flush in-memory changes to the DB. Must be awaited so all
-		// REFRESH_EVERYTHING emissions (and their debounced save timers)
-		// settle before we invalidate them below.
-		await events.cleanDBTimeout();
+		// Drain pending editor deltas and persist to data.json before
+		// tearing down the scheduler, so a coalesced debounced save
+		// still lands on disk.
+		await this.flushNow();
 
-		if (this.onFocusHandler !== null) {
-			window.removeEventListener("focus", this.onFocusHandler);
-		}
+		// Stop reacting to persist signals.
+		this.persistenceScheduler?.dispose();
+		this.persistenceScheduler = null;
 
-		// Invalidate any pending debounced saveDataToJSON callbacks that
-		// may have been queued before or during cleanDBTimeout. The timer
-		// is cancelled so it won't fire; if it already fired and the
-		// callback is pending, the generation check inside the callback
-		// (see REFRESH_EVERYTHING handler) will make it a no-op.
-		this._saveGen++;
-		if (this.JsonDebounceTimeout) {
-			clearTimeout(this.JsonDebounceTimeout);
-			this.JsonDebounceTimeout = null;
-		}
-		// Persist and back up BEFORE clearing the DB. These must be awaited and
-		// ordered: an un-awaited clear() could otherwise empty the DB before
-		// saveDataToJSON snapshots it, backing up (and saving) empty stats.
-		await this.saveDataToJSON();
-		await this.backupDataToVaultFolder(this.data);
+		// Back up.  No DB to clear — the in-memory store is
+		// garbage-collected with the plugin.
+		await backupData(preparePersistData(), this.app);
 
-		await getDB().dailyActivity.clear();
+		// Reset the module-level partitioned cache so stale data doesn't
+		// leak into the next plugin load cycle.
+		resetDailySummaryCache();
+		resetStatsCodecCache();
 	}
 
 	// #endregion
 
 	async onExternalSettingsChange() {
-		try {
-			const newData = (await this.loadData()) as PluginData;
-
-			if (JSON.stringify(newData) == JSON.stringify(this.data)) {
-				return;
-			}
-
-			newData.stats?.dailyActivity.forEach(async (activity, index) => {
-				let existingActivity;
-
-				if (activity.id) {
-					existingActivity = await getDB().dailyActivity.get(
-						activity.id,
-					);
-				}
-
-				/** Find any new activity and add it to the db */
-				if (
-					existingActivity &&
-					JSON.stringify(existingActivity) == JSON.stringify(activity)
-				) {
-					return;
-				} else {
-					getDB().dailyActivity.put(activity);
-				}
-			});
-
-			/** Assign new external settings*/
-			if (this.data.settings !== newData.settings) {
-				this.data.settings = {
-					...DEFAULT_SETTINGS,
-					...newData.settings,
-				};
-			}
-
-			state.emit(EVENTS.REFRESH_EVERYTHING);
-			//TODO: ADD "SAVE AND UPDATE" HERE + EMIT UPDATE TO PLUGIN STATE
-		} catch (error) {
-			console.error("Error in onExternalSettingsChange:", error);
-		}
+		await handleExternalDataChange(this);
 	}
 
-	// #region SAVING DATA
-
-	private async saveDataToJSON() {
-		const dailyActivityDB = await getDB().dailyActivity.toArray();
-
-		// Safety guard: if the DB is empty but we have entries in memory, the DB
-		// was likely cleared by a race (e.g., a stale timer callback or an
-		// un-awaited clear()).  Don't overwrite data.json with empty data.
-		if (
-			dailyActivityDB.length === 0 &&
-			(this.data.stats?.dailyActivity?.length ?? 0) > 0
-		) {
-			return;
-		}
-
-		this.data.stats = {
-			...this.data.stats,
-			dailyActivity: dailyActivityDB,
-		};
-
-		await this.saveData(this.data);
-	}
-
-	public async updateCurrentStreak(increase: boolean) {
-		if (!this.data.stats) return;
-
-		// TODO: check previous date to see when was the last one
-
-		if (!this.data.stats.daysWithCompletedGoal) {
-			this.data.stats.daysWithCompletedGoal = [];
-		}
-
-		const { longestStreak, currentStreak } = utils.getDateStreaks(
-			this.data.stats.daysWithCompletedGoal,
-		);
-
-		if (increase) {
-			if (this.data.stats.daysWithCompletedGoal.includes(state.today)) {
-				return;
-			}
-			this.data.stats.daysWithCompletedGoal.push(state.today);
-		} else {
-			if (this.data.stats.daysWithCompletedGoal.includes(state.today)) {
-				const newArray = this.data.stats.daysWithCompletedGoal?.filter(
-					(item) => item !== state.today,
-				);
-				this.data.stats.daysWithCompletedGoal = newArray;
-			}
-		}
-		this.quietSave();
-	}
-
-	public async updateAndSaveEverything() {
-		await this.saveData(this.data);
-		state.setToday(); // already refreshes everything
-	}
-
-	public async quietSave() {
-		await this.saveData(this.data);
-	}
-
-	// #endregion
 }

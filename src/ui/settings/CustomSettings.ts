@@ -1,17 +1,19 @@
 import { getByPath, setByPath } from "./SettingsTab";
 import { SettingItem } from "./SettingSchema";
 import { updateVisibility } from "./SettingsTab";
-import { Notice, Setting, TextComponent } from "obsidian";
+import { Setting } from "obsidian";
 import { ColorConfig, HeatmapColorModes, Language } from "@/defs/types";
 import { DEFAULT_SETTINGS } from "@/defs/types";
 import { ConfirmationModal } from "./ConfirmationModal";
-import { state } from "@/core/pluginState";
+import { getPlugin } from "@/core/pluginRegistry";
+import { useStore } from "@/core/store";
+import { applyHeatmapColorStyles } from "@/ui/styles/applyColorStyles";
 
 // ------------------------
 // Color pickers for light/dark themes
 // ------------------------
 export function createColorSettings(setting: Setting, theme: "light" | "dark") {
-  const settings = state.plugin.data.settings;
+  const settings = useStore.getState().settings;
   if (!settings.heatmapConfig.colors) return;
 
   const mode = settings.heatmapConfig.intensityMode;
@@ -33,11 +35,16 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
 
   levelsToShow.forEach((level) => {
     setting.addColorPicker((color) =>
-      color.setValue(colorValues[level]).onChange(async (value) => {
-        colorValues[level] = value;
-        await state.plugin.updateAndSaveEverything();
-        state.plugin.applyColorStyles();
-        // propagate visibility if needed
+      color.setValue(colorValues[level]).onChange((value) => {
+        useStore.getState().mutateSettings((draft) => {
+          if (draft.heatmapConfig.colors) {
+            draft.heatmapConfig.colors[theme] = {
+              ...draft.heatmapConfig.colors[theme],
+              [level]: value,
+            };
+          }
+        });
+        applyHeatmapColorStyles(getPlugin().app.workspace.containerEl);
         updateVisibility(`heatmapConfig.colors[${theme}]`, value);
       }),
     );
@@ -47,15 +54,17 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
     button.setIcon("rotate-ccw");
     button.onClick(() => {
       new ConfirmationModal(
-        state.plugin.app,
+        getPlugin().app,
         `Are you sure you want to reset the ${theme} theme colors to their default values?`,
-        async () => {
-          if (!settings.heatmapConfig.colors) return;
-          settings.heatmapConfig.colors[theme] = {
-            ...DEFAULT_SETTINGS.heatmapConfig.colors![theme],
-          };
-          await state.plugin.updateAndSaveEverything();
-          state.plugin.applyColorStyles();
+        () => {
+          useStore.getState().mutateSettings((draft) => {
+            if (draft.heatmapConfig.colors) {
+              draft.heatmapConfig.colors[theme] = {
+                ...DEFAULT_SETTINGS.heatmapConfig.colors![theme],
+              };
+            }
+          });
+          applyHeatmapColorStyles(getPlugin().app.workspace.containerEl);
         },
       ).open();
     });
@@ -65,57 +74,40 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
 // ------------------------
 // Language dropdown
 // ------------------------
-export function createLanguageDropdown(setting: Setting) {
-  const settings = state.plugin.data.settings;
-  const enabledLanguages = settings.enabledLanguages || [];
-  let loadedLanguage: string;
+const ALL_LANGUAGES: Language[] = ["LATIN", "CJK", "JAPANESE", "KOREAN", "CYRILLIC", "GREEK", "ARABIC", "HEBREW", "INDIC", "SOUTHEAST_ASIAN"];
 
-  if (enabledLanguages.length === 1) loadedLanguage = "basic";
-  else if (enabledLanguages.length === 4) loadedLanguage = "cjk";
-  else if (enabledLanguages.length > 4) loadedLanguage = "full";
-  else loadedLanguage = "basic";
+const LANGUAGE_PRESETS: Record<string, { label: string; scripts: Language[] }> = {
+  basic:   { label: "Basic (Latin only)", scripts: ["LATIN"] },
+  chinese: { label: "Chinese",     scripts: ["LATIN", "CJK"] },
+  cjk:     { label: "CJK Support",       scripts: ["LATIN", "CJK", "JAPANESE", "KOREAN"] },
+  full:    { label: "Full Unicode",      scripts: ALL_LANGUAGES },
+};
+
+export function createLanguageDropdown(setting: Setting) {
+  const settings = useStore.getState().settings;
+  const enabled = settings.enabledLanguages || [];
+
+  const loadedKey =
+    Object.keys(LANGUAGE_PRESETS).find((k) => {
+      const a = LANGUAGE_PRESETS[k].scripts;
+      if (enabled.length !== a.length) return false;
+      const sorted = [...enabled].sort();
+      return [...a].sort().every((v, i) => v === sorted[i]);
+    }) || "custom";
+
+  const options: Record<string, string> = {};
+  for (const k of Object.keys(LANGUAGE_PRESETS)) options[k] = LANGUAGE_PRESETS[k].label;
 
   setting.setClass("ktr-first").addDropdown((dropdown) => {
-    const scriptOptions = {
-      basic: "Basic (Latin only)",
-      cjk: "CJK Support",
-      full: "Full Unicode",
-    };
-
-    dropdown
-      .addOptions(scriptOptions)
-      .setValue(loadedLanguage)
-      .onChange((value) => {
-        let newScripts: Language[] = [];
-        switch (value) {
-          case "basic":
-            newScripts = ["LATIN"];
-            break;
-          case "cjk":
-            newScripts = ["LATIN", "CJK", "JAPANESE", "KOREAN"];
-            break;
-          case "full":
-            newScripts = [
-              "LATIN",
-              "CJK",
-              "JAPANESE",
-              "KOREAN",
-              "CYRILLIC",
-              "GREEK",
-              "ARABIC",
-              "HEBREW",
-              "INDIC",
-              "SOUTHEAST_ASIAN",
-            ];
-            break;
-          case "custom":
-            // TODO: implement checkboxes if needed
-            break;
-        }
-        settings.enabledLanguages = [...newScripts];
-        state.plugin.updateAndSaveEverything();
-        updateVisibility("enabledLanguages", newScripts);
+    dropdown.addOptions(options).setValue(loadedKey).onChange((value) => {
+      const preset = LANGUAGE_PRESETS[value];
+      if (!preset) return;
+      const newScripts = [...preset.scripts];
+      useStore.getState().mutateSettings((draft) => {
+        draft.enabledLanguages = newScripts;
       });
+      updateVisibility("enabledLanguages", newScripts);
+    });
   });
 }
 
@@ -123,14 +115,14 @@ export function createLanguageDropdown(setting: Setting) {
 // Coloring mode dropdown
 // ------------------------
 export function createColorModeSettings(setting: Setting) {
-  const settings = state.plugin.data.settings;
+  const settings = useStore.getState().settings;
 
   setting.setClass("ktr-first").addDropdown((dropdown) => {
     dropdown
       .addOptions({ ...HeatmapColorModes })
       .setValue(settings.heatmapConfig.intensityMode.toUpperCase())
-      .onChange(async (value) => {
-        await changeColorMode(value); // use callback instead of this.changeColorMode
+      .onChange((value) => {
+        changeColorMode(value);
         updateVisibility("heatmapConfig.intensityMode", value);
       });
   });
@@ -140,7 +132,7 @@ export function createColorModeSettings(setting: Setting) {
 // Threshold inputs
 // ------------------------
 export function createThresholdSettings(setting: Setting) {
-  const settings = state.plugin.data.settings;
+  const settings = useStore.getState().settings;
   const { intensityMode, intensityStops } = settings.heatmapConfig;
 
   const thresholds: {
@@ -162,15 +154,16 @@ export function createThresholdSettings(setting: Setting) {
         text
           .setValue(intensityStops[key].toString())
           .setPlaceholder(placeholder)
-          .onChange(async (value) => {
+          .onChange((value) => {
             const num = parseInt(value);
             if (!isNaN(num)) {
-              const newStops = { ...intensityStops, [key]: num };
-              settings.heatmapConfig = {
-                ...settings.heatmapConfig,
-                intensityStops: newStops,
-              };
-              await state.plugin.updateAndSaveEverything();
+              useStore.getState().mutateSettings((draft) => {
+                draft.heatmapConfig.intensityStops = {
+                  ...draft.heatmapConfig.intensityStops,
+                  [key]: num,
+                };
+              });
+              const newStops = useStore.getState().settings.heatmapConfig.intensityStops;
               updateVisibility("heatmapConfig.intensityStops", newStops);
             }
           }),
@@ -180,40 +173,34 @@ export function createThresholdSettings(setting: Setting) {
   });
 }
 
-export async function changeColorMode(value: string) {
-  const settings = state.plugin.data.settings;
+export function changeColorMode(value: string) {
   const mode = value.toLowerCase() as HeatmapColorModes;
-
-  // Ensure intensityStops exist
-  const stops = settings.heatmapConfig.intensityStops || {};
+  const stops = useStore.getState().settings.heatmapConfig.intensityStops || {};
   const defaultStops = { low: 100, medium: 500, high: 1000 };
 
-  settings.heatmapConfig = {
-    ...settings.heatmapConfig,
-    intensityMode: mode,
-    intensityStops: {
-      low: stops.low ?? defaultStops.low,
-      medium: stops.medium ?? defaultStops.medium,
-      high: stops.high ?? defaultStops.high,
-    },
-  };
+  useStore.getState().mutateSettings((draft) => {
+    draft.heatmapConfig = {
+      ...draft.heatmapConfig,
+      intensityMode: mode,
+      intensityStops: {
+        low: stops.low ?? defaultStops.low,
+        medium: stops.medium ?? defaultStops.medium,
+        high: stops.high ?? defaultStops.high,
+      },
+    };
+  });
 
   updateThresholdVisibility();
-
-  await state.plugin.updateAndSaveEverything();
 }
 
 export function updateThresholdVisibility() {
-  const mode = state.plugin.data.settings.heatmapConfig.intensityMode;
+  const mode = useStore.getState().settings.heatmapConfig.intensityMode;
 
   const lowEl = document.querySelector<HTMLInputElement>(
     '[data-threshold-key="low"]',
   );
   const mediumEl = document.querySelector<HTMLInputElement>(
     '[data-threshold-key="medium"]',
-  );
-  const highEl = document.querySelector<HTMLInputElement>(
-    '[data-threshold-key="high"]',
   );
 
   if (lowEl)
@@ -226,117 +213,22 @@ export function createBackupFolderPathSetting(
   setting: Setting,
   config: SettingItem,
 ): void {
-  const currentValue = getByPath(state.plugin.data.settings, config.key);
+  const currentValue = getByPath(useStore.getState().settings, config.key);
 
   setting.addText((text) => {
     text
       .setPlaceholder(config.placeholder || "")
       .setValue(currentValue || "")
-      .onChange(async (value) => {
+      .onChange((value) => {
         const cleanPath = value.trim().replace(/^\/+|\/+$/g, "");
 
-        setByPath(
-          state.plugin.data.settings,
-          "backupConfig.folderPath",
-          cleanPath || ".keep-the-rhythm",
-        );
-        await state.plugin.updateAndSaveEverything();
-      });
-  });
-}
-
-// ------------------------
-// Tracked folders (tracking scope)
-// ------------------------
-export function createTrackedFoldersSetting(
-  setting: Setting,
-  config: SettingItem,
-): void {
-  const wrapper = setting.settingEl.parentElement;
-  if (!wrapper) return;
-
-  let textComponent: TextComponent | null = null;
-
-  setting.addText((text) => {
-    textComponent = text;
-    text.setPlaceholder(config.placeholder || "folder/path");
-    text.inputEl.addEventListener("keydown", (evt) => {
-      if (evt.key === "Enter") {
-        evt.preventDefault();
-        void addFolder();
-      }
-    });
-  });
-
-  setting.addButton((btn) => {
-    btn.setButtonText("Add").setTooltip("Add folder").onClick(() => {
-      void addFolder();
-    });
-  });
-
-  const listContainer = wrapper.createDiv({
-    cls: "ktr-tracked-folders-list",
-  });
-
-  function invalidateVaultCountCache() {
-    if (state.plugin.data.stats) {
-      state.plugin.data.stats.wholeVaultWordCount = undefined;
-      state.plugin.data.stats.wholeVaultCharCount = undefined;
-    }
-  }
-
-  async function addFolder() {
-    if (!textComponent) return;
-    const raw = textComponent.getValue();
-    const normalized = raw.trim().replace(/^\/+|\/+$/g, "");
-    if (!normalized) return;
-
-    const folders = state.plugin.data.settings.trackedFolders || [];
-    if (folders.includes(normalized)) {
-      new Notice("This folder is already in the tracking scope.");
-      return;
-    }
-
-    state.plugin.data.settings.trackedFolders = [...folders, normalized];
-    invalidateVaultCountCache();
-    textComponent.setValue("");
-    await state.plugin.updateAndSaveEverything();
-    renderList();
-  }
-
-  async function removeFolder(index: number) {
-    const folders = state.plugin.data.settings.trackedFolders || [];
-    state.plugin.data.settings.trackedFolders = folders.filter(
-      (_, i) => i !== index,
-    );
-    invalidateVaultCountCache();
-    await state.plugin.updateAndSaveEverything();
-    renderList();
-  }
-
-  function renderList() {
-    listContainer.empty();
-    const folders = state.plugin.data.settings.trackedFolders || [];
-
-    if (folders.length === 0) {
-      listContainer.createEl("div", {
-        text: "No folders configured — tracking the whole vault.",
-        cls: "ktr-tracked-folders-empty",
-      });
-      return;
-    }
-
-    folders.forEach((folder, index) => {
-      new Setting(listContainer)
-        .setName(folder)
-        .addButton((deleteBtn) => {
-          deleteBtn
-            .setIcon("trash")
-            .setTooltip("Remove")
-            .onClick(() => void removeFolder(index));
+        useStore.getState().mutateSettings((draft) => {
+          setByPath(
+            draft,
+            "backupConfig.folderPath",
+            cleanPath || ".keep-the-rhythm2",
+          );
         });
-    });
-  }
-
-  renderList();
+      });
+  });
 }

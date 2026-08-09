@@ -1,177 +1,190 @@
-import { deleteActivityById } from "../../db/queries";
+import {
+	deleteActivityFromDate,
+	getActivityRowsByDate,
+	selectHistoricalVersion,
+	selectTodayVersion,
+} from "@/core/dataQueries";
 import { Tooltip } from "./Tooltip";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
-import React from "react";
-import { useEffect, useState, useRef } from "react";
-import { getActivityByDate } from "../../db/queries";
-import { sumTimeEntries, getFileNameWithoutExtension } from "../../utils/utils";
-import { state, EVENTS } from "../../core/pluginState";
-import { DailyActivity } from "../../db/types";
-import { Unit } from "../../defs/types";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { getFileNameWithoutExtension } from "@/utils/utils";
+import { useStore } from "@/core/store";
+import { getPlugin } from "@/core/pluginRegistry";
 import { FileView, Notice, setIcon } from "obsidian";
 import { ManualEntryModal } from "../components/ManualEntry";
 import { EntryFilter } from "@/core/codeBlocks";
+import { ActivityRecord } from "@/defs/types";
 
 interface EntriesProps {
-  date?: string;
-  filters?: EntryFilter[];
+	date?: string;
+	filters?: EntryFilter[];
 }
 
-export const Entries = ({
-  date: dateProp,
-  filters,
-}: EntriesProps) => {
-  const date = dateProp ?? state.today;
-  const [unit, setUnit] = useState<Unit>(Unit.WORD);
-  const [entries, setEntries] = useState<DailyActivity[]>([]);
+interface EntryRowProps {
+	entry: ActivityRecord;
+	onOpenFile: (filePath: string) => void;
+	onDelete: (filePath: string) => void;
+}
 
-  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+/**
+ * Memoized row: only re-renders when the entry itself changes (filePath or
+ * wordsAdded) or when handlers change.  With React.memo the other rows skip
+ * reconciliation entirely on each keystroke, instead of N rows each getting
+ * a fresh prop bundle.
+ */
+const EntryRow = React.memo(function EntryRow({
+	entry,
+	onOpenFile,
+	onDelete,
+}: EntryRowProps) {
+	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  if (
-    deleteButtonRef instanceof HTMLElement &&
-    !deleteButtonRef.dataset.iconSet
-  ) {
-    setIcon(deleteButtonRef, "trash-2");
-    deleteButtonRef.dataset.iconSet = "true";
-  }
+	useEffect(() => {
+		const el = deleteButtonRef.current;
+		if (el) setIcon(el, "trash-2");
+	}, []);
 
-  const handleEntriesRefresh = async () => {
-    const fetchedActivities = await getActivityByDate(date);
+	const delta = entry.wordsAdded;
+	const prefix = delta > 0 ? "+" : "";
 
-    const pathCounts = new Map<string, number>();
-    for (const activity of fetchedActivities) {
-      if (activity.filePath) {
-        pathCounts.set(
-          activity.filePath,
-          (pathCounts.get(activity.filePath) || 0) + 1,
-        );
-      }
-    }
+	return (
+		<div className="todayEntires__list-item">
+			<span
+				className="todayEntries__file-path"
+				onClick={() => onOpenFile(entry.filePath)}
+			>
+				{getFileNameWithoutExtension(entry.filePath)}
+			</span>
+			<div className="todayEntries__list-item-right">
+				<span className="todayEntries__word-count">
+					{prefix}
+					{delta.toLocaleString()}
+				</span>
+				<span className="todayEntries_list-item-unit">{" words"}</span>
+				<Tooltip content="Delete entry">
+					<button
+						ref={deleteButtonRef}
+						className="todayEntries__delete-button"
+						onMouseDown={() => onDelete(entry.filePath)}
+					/>
+				</Tooltip>
+			</div>
+		</div>
+	);
+});
 
-    setEntries(
-      fetchedActivities
-        .filter((entry) => sumTimeEntries(entry, Unit.WORD, true) != 0)
-        .filter((entry) => {
-          if (!filters || filters.length === 0) return true;
-          return filters.every((f) => {
-            if (f.type === "includes") return entry.filePath?.includes(f.value);
-            if (f.type === "excludes")
-              return !entry.filePath?.includes(f.value);
-            return true;
-          });
-        })
-        .sort((a, b) => {
-          const aCount = sumTimeEntries(a, unit, true);
-          const bCount = sumTimeEntries(b, unit, true);
-          return bCount - aCount;
-        }),
-    );
-  };
+export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
+	// Subscribe to today so the header label + default date stay live when
+	// the calendar rolls over.
+	const today = useStore((s) => s.today);
+	const date = dateProp ?? today;
+	const historicalVersion = useStore(selectHistoricalVersion);
+	const todayVersion = useStore(selectTodayVersion);
 
-  const toggleUnit = () => {
-    setUnit(unit == Unit.WORD ? Unit.CHAR : Unit.WORD);
-  };
+	// Subscribe to the version counter, not the map reference.  A single
+	// memo keyed on `date` + the version stamp that actually invalidates
+	// it: today's entries refresh on every keystroke (todayVersion),
+	// historical dates only when historical data changes — typing in
+	// another file while a past date is open stays cheap.
+	const version = date === today ? todayVersion : historicalVersion;
+	const rawEntries = useMemo(() => getActivityRowsByDate(date), [
+		date,
+		version,
+	]);
 
-  const addManualEntry = () => {
-    new ManualEntryModal(state.plugin.app).open();
-  };
+	const matchesFilters = (entry: ActivityRecord): boolean => {
+		if (entry.wordsAdded === 0) return false;
+		// "date" type is resolved upstream into the `date` prop, so only
+		// includes/excludes reach this predicate.
+		return (filters ?? []).every((f) => {
+			if (f.type === "includes") return entry.filePath.includes(f.value);
+			if (f.type === "excludes") return !entry.filePath.includes(f.value);
+			return true;
+		});
+	};
 
-  useEffect(() => {
-    handleEntriesRefresh();
-    state.on(EVENTS.REFRESH_EVERYTHING, handleEntriesRefresh);
+	// Filter + sort live in their own useMemo so a `filters` change does
+	// not re-fetch data, and a data change does not re-run the filter
+	// against the same predicate.  The work is cheap (k < 10) but the
+	// reference identity matters for the children below.
+	const entries = useMemo(
+		() =>
+			rawEntries
+				.filter(matchesFilters)
+				.sort((a, b) => b.wordsAdded - a.wordsAdded),
+		[rawEntries, filters],
+	);
 
-    return () => {
-      state.off(EVENTS.REFRESH_EVERYTHING, handleEntriesRefresh);
-    };
-  }, [date]);
+	const addManualEntry = useCallback(() => {
+		new ManualEntryModal(getPlugin().app).open();
+	}, []);
 
-  return (
-    <div className="todayEntries__section">
-      <RadixTooltip.Provider delayDuration={200}>
-        <div className="todayEntries__header">
-          <div className="todayEntries__section-title">
-            {date == state.today ? "ENTRIES TODAY" : `ENTRIES (${date})`}
-          </div>
-          <Tooltip content="Add Entry">
-            <button
-              className="todayEntries__manual-entry"
-              ref={(el) => el && setIcon(el, "list-plus")}
-              onMouseDown={addManualEntry}
-            />
-          </Tooltip>
-          <Tooltip content="Toggle Unit">
-            <button
-              className="todayEntries__entry-unit"
-              ref={(el) => el && setIcon(el, "case-sensitive")}
-              onMouseDown={toggleUnit}
-            />
-          </Tooltip>
-        </div>
-        {entries.length > 0 ? (
-          entries.map((entry) => {
-            const delta = sumTimeEntries(entry, unit, true);
-            const prefix = delta > 0 ? "+" : "";
+	const setManualEntryIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "list-plus");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
 
-            return (
-              <div key={entry.filePath} className="todayEntires__list-item">
-                <span
-                  className="todayEntries__file-path"
-                  onClick={async () => {
-                    const file = state.plugin.app.vault.getFileByPath(
-                      entry.filePath,
-                    );
+	const handleOpenFile = useCallback(async (filePath: string) => {
+		const app = getPlugin().app;
+		const file = app.vault.getFileByPath(filePath);
 
-                    if (!file) {
-                      new Notice("File not found!");
-                      return;
-                    }
+		if (!file) {
+			new Notice("File not found!");
+			return;
+		}
 
-                    const leaves =
-                      state.plugin.app.workspace.getLeavesOfType("markdown");
-                    for (const leaf of leaves) {
-                      if (
-                        leaf.view instanceof FileView &&
-                        leaf.view.file?.path == file.path
-                      ) {
-                        // Activate the existing leaf
-                        state.plugin.app.workspace.setActiveLeaf(leaf);
-                        return;
-                      }
-                    }
+		const leaves = app.workspace.getLeavesOfType("markdown");
+		for (const leaf of leaves) {
+			if (
+				leaf.view instanceof FileView &&
+				leaf.view.file?.path == file.path
+			) {
+				app.workspace.setActiveLeaf(leaf);
+				return;
+			}
+		}
 
-                    const newLeaf = state.plugin.app.workspace.getLeaf("tab");
+		const newLeaf = app.workspace.getLeaf("tab");
+		await newLeaf.openFile(file);
+	}, []);
 
-                    await newLeaf.openFile(file);
-                  }}
-                >
-                  {getFileNameWithoutExtension(entry.filePath)}
-                </span>
-                <div className="todayEntries__list-item-right">
-                  <span className="todayEntries__word-count">
-                    {prefix}
-                    {delta.toLocaleString()}
-                  </span>
-                  <span className="todayEntries_list-item-unit">
-                    {" " + unit.toLowerCase() + "s"}
-                  </span>
-                  <Tooltip content="Delete entry">
-                    <button
-                      className="todayEntries__delete-button"
-                      ref={(el) => el && setIcon(el, "trash-2")}
-                      onMouseDown={async () => {
-                        await deleteActivityById(entry.id);
-                        state.emit(EVENTS.REFRESH_EVERYTHING);
-                      }}
-                    />
-                  </Tooltip>
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <p className="empty-data">No files edited today</p>
-        )}
-      </RadixTooltip.Provider>
-    </div>
-  );
+	const handleDelete = useCallback(
+		(filePath: string) => {
+			void deleteActivityFromDate(filePath, date);
+		},
+		[date],
+	);
+
+	return (
+		<div className="todayEntries__section">
+			<RadixTooltip.Provider delayDuration={200}>
+				<div className="todayEntries__header">
+					<div className="todayEntries__section-title">
+						{date == today ? "ENTRIES TODAY" : `ENTRIES (${date})`}
+					</div>
+					<Tooltip content="Add or Update Entry">
+						<button
+							className="todayEntries__manual-entry"
+							ref={setManualEntryIcon}
+							onMouseDown={addManualEntry}
+						/>
+					</Tooltip>
+				</div>
+				{entries && entries.length > 0 ? (
+					entries.map((entry) => (
+						<EntryRow
+							key={entry.filePath}
+							entry={entry}
+							onOpenFile={handleOpenFile}
+							onDelete={handleDelete}
+						/>
+					))
+				) : (
+					<p className="empty-data">No files edited today</p>
+				)}
+			</RadixTooltip.Provider>
+		</div>
+	);
 };

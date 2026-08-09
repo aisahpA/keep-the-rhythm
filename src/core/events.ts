@@ -1,20 +1,18 @@
-import { Unit } from "@/defs/types";
-import { TargetCount } from "@/defs/types";
-import { getCurrentCount } from "@/db/queries";
-import { EVENTS, state } from "./pluginState";
-import { TFile, Editor } from "obsidian";
-import { getDB } from "../db/db";
-import { DailyActivity } from "@/db/types";
-import KeepTheRhythm from "../main";
+import { useStore } from "./store";
+import {
+	TFile,
+	Editor,
+	WorkspaceLeaf,
+	MarkdownView,
+	type MarkdownFileInfo,
+} from "obsidian";
 import { getLanguageBasedWordCount } from "@/core/wordCounting";
-import { moment as _moment } from "obsidian";
-import { getExistingOrCreateNewEntry, sumBothTimeEntries } from "@/utils/utils";
+import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
 import { isPathTracked } from "./pathFilter";
 
-const moment = _moment as unknown as typeof _moment.default;
-
-let dbUpdateTimeout: NodeJS.Timeout | null = null;
-const DEBOUNCE_TIME = 100; // ms
+// Module-level guard — replaces state.isUpdatingActivity.  Only used
+// internally by events.ts to prevent re-entrant activity creation.
+let isUpdatingActivity = false;
 
 /**
  * Debounce window for sampling the editor content. Instead of running a
@@ -27,12 +25,81 @@ const DEBOUNCE_TIME = 100; // ms
  * sample until the next natural pause. Pending samples are flushed on
  * file switch and on unload so no deltas are lost.
  */
-const EDITOR_CHANGE_SAMPLE_DELAY = 2000; // ms
 
-let editorChangeTimer: NodeJS.Timeout | null = null;
+let editorChangeTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingEditor: Editor | null = null;
-let pendingInfo: any = null;
-let pendingPlugin: KeepTheRhythm | null = null;
+type FileChangeInfo = MarkdownView | MarkdownFileInfo;
+let pendingInfo: FileChangeInfo | null = null;
+
+// Convenience accessor — avoids importing useStore directly in every function.
+const store = () => useStore.getState();
+
+function getEditorChangeDelayMs(): number {
+	let delay = Math.max(store().settings.editorChangeSampleDelay ?? 2, 0.5);
+	return delay * 1000;
+}
+
+// A file is "live" — already set up this session — iff today's baseline
+// exists.  Unlike a pointer to the "current file", this is
+// derived directly from the data, so the guard naturally re-fires after a
+// midnight rollover (new `today` key has no rows yet) or an external sync
+// that deleted the row / baseline. No separate pointer to invalidate.
+function isFileLive(file: TFile): boolean {
+	const cur = store();
+	return cur.todayBaselines[file.path] !== undefined;
+}
+
+// This handles file switches and midnight rollovers.
+async function ensureActivityExists(file: TFile, liveContent?: string) {
+	if (isUpdatingActivity) return;
+	if (isFileLive(file)) return;
+
+	isUpdatingActivity = true;
+	try {
+		await flushPendingEditorChange();
+		await getExistingOrCreateNewEntry(file, store().today, liveContent);
+	} finally {
+		isUpdatingActivity = false;
+	}
+}
+
+/**
+ * @function handleFileOpen
+ * Fires on file-open / focus switch (active-leaf-change).  Captures today's
+ * baseline from the *live editor content* — not the vault — so the first
+ * keystrokes are anchored against the value that can't race a stale disk
+ * cache.  It creates NO row: liveness is derived from the baseline alone
+ * (isFileLive), so the first keystroke then short-circuits and skips the
+ * disk read on the typing path. The row is written lazily by the first
+ * debounced sample with a non-zero delta.
+ * Guarded by isFileLive → runs at most once per file per day.
+ */
+export async function handleFileOpen(leaf: WorkspaceLeaf | null) {
+	// Drain any debounced sample from the *previously* focused leaf before
+	// doing anything with the new one. A focus switch is the natural flush
+	// boundary (cheap O(1) when no sample is pending) — without it, the last
+	// characters typed in an already-live file would stay unsampled after
+	// switching to another live file, and if never re-touched they'd be
+	// permanently under-counted.
+	await flushPendingEditorChange();
+
+	if (!leaf || !(leaf.view instanceof MarkdownView)) return;
+	const file = leaf.view.file;
+	if (!file || file.extension !== "md") return;
+	if (!isPathTracked(file.path)) return;
+
+	// O(1) guards: files that are already live — and in-flight creations —
+	// skip the whole read, so plain focus switches on tracked files cost
+	// nothing (no `getValue()` document stringification).
+	if (isFileLive(file) || isUpdatingActivity) return;
+
+	// Freeze the content at the exact focus instant, before the first await.
+	// Reading it inside ensureActivityExists would happen after flushing the
+	// previous file's pending debounce, letting keystrokes made meanwhile
+	// leak into the baseline and silently swallow those first words.
+	const liveContent = leaf.view.editor?.getValue();
+	await ensureActivityExists(file, liveContent);
+}
 
 /**
  * @function handleEditorChange
@@ -40,34 +107,31 @@ let pendingPlugin: KeepTheRhythm | null = null;
  * Is not fired when focused file changes (file-open)
  */
 export async function handleEditorChange(
-  editor: Editor,
-  info: any,
-  plugin: KeepTheRhythm,
+	editor: Editor,
+	info: FileChangeInfo,
 ) {
-  const file = info.file;
+	const file = info.file;
+	if (!file || file.extension !== "md") {
+		return;
+	}
+	if (!isPathTracked(file.path)) {
+		return;
+	}
 
-  if (!file || file.extension !== "md") {
-    return;
-  }
+	await ensureActivityExists(file);
 
-  // Respect the global tracking-scope filter: ignore edits to files outside
-  // the configured folders so they don't pollute daily stats or streaks.
-  if (!isPathTracked(file.path)) {
-    return;
-  }
+	// Stash the latest references and re-schedule the sample. Repeated
+	// keystrokes within the delay window keep cancelling the timer, so only
+	// the most recent editor state is sampled.
+	pendingEditor = editor;
+	pendingInfo = info;
 
-  // Stash the latest references and re-schedule the sample. Repeated
-  // keystrokes within the delay window keep cancelling the timer, so only
-  // the most recent editor state is sampled.
-  pendingEditor = editor;
-  pendingInfo = info;
-  pendingPlugin = plugin;
-
-  if (editorChangeTimer) clearTimeout(editorChangeTimer);
-  editorChangeTimer = setTimeout(() => {
-    editorChangeTimer = null;
-    void runPendingEditorChange();
-  }, EDITOR_CHANGE_SAMPLE_DELAY);
+	if (editorChangeTimer) clearTimeout(editorChangeTimer);
+	const delayMs = getEditorChangeDelayMs();
+	editorChangeTimer = setTimeout(() => {
+		editorChangeTimer = null;
+		void runPendingEditorChange();
+	}, delayMs);
 }
 
 /**
@@ -76,270 +140,97 @@ export async function handleEditorChange(
  * file's deltas have been recorded before switching context.
  */
 export async function flushPendingEditorChange(): Promise<void> {
-  if (!editorChangeTimer) return;
-  clearTimeout(editorChangeTimer);
-  editorChangeTimer = null;
-  await runPendingEditorChange();
-}
-
-async function runPendingEditorChange(): Promise<void> {
-  const editor = pendingEditor;
-  const info = pendingInfo;
-  const plugin = pendingPlugin;
-  pendingEditor = null;
-  pendingInfo = null;
-  pendingPlugin = null;
-  if (!editor || !info || !plugin) return;
-  await processEditorChange(editor, info, plugin);
+	if (!editorChangeTimer) return;
+	clearTimeout(editorChangeTimer);
+	editorChangeTimer = null;
+	await runPendingEditorChange();
 }
 
 /**
- * @function processEditorChange
  * Reads the current editor content, computes word/char deltas against the
  * activity's running totals, and accumulates them. Called from the debounce
  * timer (via handleEditorChange) or synchronously flushed on file switch /
  * unload.
  */
-async function processEditorChange(
-  editor: Editor,
-  info: any,
-  plugin: KeepTheRhythm,
-) {
-  let activity = state.currentActivity;
+async function runPendingEditorChange(): Promise<void> {
+	const editor = pendingEditor;
+	const info = pendingInfo;
+	pendingEditor = null;
+	pendingInfo = null;
+	if (!editor || !info) return;
 
-  /**
-   * Handle mismatches between state and current opened file
-   * Only happens if the user is editing stuff really really fast, some of those inputs might be ignored at the start.
-   * But I think it's okay, there might just be a slight mismatch because of wordCountStart if the file wasn't seen today
-   * */
-  if (
-    !activity ||
-    activity?.filePath !== info.file.path ||
-    activity?.date !== state.today
-  ) {
-    // Re-sync the activity when it's missing, points at a different file, or
-    // is stale after a midnight rollover (Obsidian left open across days).
-    // If handleFileOpen is not running (some weird focusing states), make it run and update the activity
-    if (!state.isUpdatingActivity) {
-      await handleFileOpen(info.file);
-      activity = state.currentActivity;
-    } else {
-      return;
-    }
-  }
+	const filePath = info.file?.path;
+	if (!filePath) return;
 
-  if (!activity) return;
+	try {
+		const cur = store();
 
-  /** Calculate CHAR and WORD deltas based on state  */
-  const currentContent = editor.getValue();
+		// The pending sample belongs to the file it was captured from
+		// (info.file), not to whatever is "current" now — this stays correct
+		// even if the user switched files since the debounce was armed.
+		// Today's baseline anchors the delta; the row is written lazily —
+		// a fresh file open has no row until the first sampled keystroke.
+		const baseline = cur.todayBaselines[filePath];
+		if (baseline === undefined) return;
 
-  const newWordCount = getLanguageBasedWordCount(
-    currentContent,
-    plugin.data.settings.enabledLanguages,
-  );
-  const newCharCount = currentContent.length;
+		const newWordCount = getLanguageBasedWordCount(
+			editor.getValue(),
+			cur.settings?.enabledLanguages,
+		);
 
-  /**
-   * Calculates delta word count based on
-   * @var wordCountStart: amount of words the file started at the first time it was opened
-   * @var prevWordsAdded: amount of words written today (added across changes[])
-   * @var newWordCount: current amount of words in the file
-   */
-  const { totalWords, totalChars } = sumBothTimeEntries(activity);
-
-  const wordsAdded = newWordCount - totalWords;
-  const charsAdded = newCharCount - totalChars;
-
-  if (state.plugin.data.stats && (wordsAdded !== 0 || charsAdded !== 0)) {
-    if (state.plugin.data.stats.wholeVaultWordCount !== undefined) {
-      state.plugin.data.stats.wholeVaultWordCount += wordsAdded;
-    }
-    if (state.plugin.data.stats.wholeVaultCharCount !== undefined) {
-      state.plugin.data.stats.wholeVaultCharCount += charsAdded;
-    }
-  }
-
-  /**
-   * Accumulate the delta into the activity's flat word/char totals.
-   */
-  activity.wordsAdded = (activity.wordsAdded || 0) + (wordsAdded || 0);
-  activity.charsAdded = (activity.charsAdded || 0) + (charsAdded || 0);
-
-  state.emit(EVENTS.REFRESH_EVERYTHING);
-
-  /** Debounces updates to the DB, which only happens when
-   *  the user stops editing the page for 200ms. */
-  if (dbUpdateTimeout) clearTimeout(dbUpdateTimeout);
-
-  dbUpdateTimeout = setTimeout(async () => {
-    await flushChangesToDB(state.currentActivity!);
-  }, DEBOUNCE_TIME);
+		// Clamp to ≥ 0: undo/shrink below the baseline means this session
+		// contributed nothing new, never a negative "added".
+		cur.upsertAdded(cur.today, filePath, Math.max(0, newWordCount - baseline));
+	} catch (error) {
+		// The user may have closed the tab (and disposed its editor) since
+		// this sample was armed; swallowing the failure keeps one dead
+		// editor from tearing down subsequent scheduling.
+		console.error(`KTR failed sampling ${filePath} | ${error}`);
+	}
 }
 
-/**
- * @function handleFileOpen
- * - Updates the state to match the current opened file
- * - Creates an activity for the opened file if it doens't exist
- * - Checks if the day passed to update data (maybe should be somewhere else)
- */
-
-export async function handleFileOpen(file: TFile) {
-  // Flush any pending sample for the previous file before switching
-  // context, otherwise its deltas could be recorded against the new file.
-  await flushPendingEditorChange();
-
-  if (!file || file.extension !== "md") {
-    return;
-  }
-  // Don't create activity entries for files outside the tracking scope.
-  if (!isPathTracked(file.path)) {
-    return;
-  }
-  state.isUpdatingActivity = true;
-
-  /** Return if the file "opened" is the same that was seen last time
-   *  AND its activity still belongs to the current day. After a midnight
-   *  rollover we must fall through to rebuild today's entry. */
-  if (
-    file.path == state.currentActivity?.filePath &&
-    state.currentActivity?.date === state.today
-  ) {
-    state.isUpdatingActivity = false;
-    return;
-  }
-
-  const entry = await getExistingOrCreateNewEntry(file, state.today);
-  if (entry) state.setCurrentActivity(entry);
-  state.isUpdatingActivity = false;
-
-  state.emit(EVENTS.REFRESH_EVERYTHING);
-}
-
-/**
- * @function flushChangesToDB
- * Debounced function that matches the state to the DB entries;
- */
-async function flushChangesToDB(activity: DailyActivity) {
-  // TODO: use this globally, making all updates on info real time by using stores but flushing them to the DB ocasionally.
-  // probably here is a good moment to update the STREAK data?
-
-  /** Simple check if the day has passed to update everything if it did.*/
-  //   const today = formatDate(new Date());
-  //   if (today !== state.today) {
-  //     state.setToday();
-  //   }
-
-  if (!activity) return;
-
-  await getDB()
-    .dailyActivity.where("[date+filePath]")
-    .equals([activity.date, activity.filePath])
-    .modify((dailyEntry) => {
-      dailyEntry.wordsAdded = activity.wordsAdded;
-      dailyEntry.charsAdded = activity.charsAdded;
-    });
-
-  checkStreak();
-  state.emit(EVENTS.REFRESH_EVERYTHING);
-}
-
-/**
- * @function cleanDBTimeout
- * Clears timeouts and flushes any in-memory data to the DB.
- * Must be awaited so all REFRESH_EVERYTHING emissions settle before the
- * caller (onunload) invalidates pending saves and clears the DB.
- */
-export async function cleanDBTimeout() {
-  // Flush any pending editor-change sample so the final deltas land in the
-  // activity before we flush it to the DB.
-  if (editorChangeTimer) {
-    clearTimeout(editorChangeTimer);
-    editorChangeTimer = null;
-    await runPendingEditorChange();
-  }
-
-  if (dbUpdateTimeout) {
-    clearTimeout(dbUpdateTimeout);
-  }
-  await flushChangesToDB(state.currentActivity!);
-}
-
-/**
- * @function checkStreak
- */
-
-async function checkStreak() {
-  const writtenToday = await getCurrentCount(
-    Unit.WORD,
-    TargetCount.CURRENT_DAY,
-  );
-
-  const goal = state.plugin.data?.settings?.dailyWritingGoal || 500;
-
-  if (writtenToday >= goal) {
-    state.plugin.updateCurrentStreak(true);
-  } else {
-    state.plugin.updateCurrentStreak(false);
-  }
-}
 
 /**
  * @function handleFileDelete
- * Should probably just get the fileWordCount and consider it as delta in it's dailyActivity?
+ * Removes today's activity record for the deleted file (if any), preserving
+ * historical data from other days.  Re-checks the streak in case today's
+ * total drops below the goal.
  */
-export async function handleFileDelete(file: TFile) {
-  if (!file || file.extension !== "md") {
-    return;
-  }
-  if (!isPathTracked(file.path)) {
-    return;
-  }
-  try {
-    await getDB()
-      .dailyActivity.where("[date+filePath]")
-      .equals([state.today, file.path])
-      .modify((dailyEntry) => {
-        // Reverse the entire day's delta so the file's contribution
-        // to today's stats is zeroed out.
-        dailyEntry.wordsAdded = -(dailyEntry.wordCountStart || 0);
-        dailyEntry.charsAdded = -(dailyEntry.charCountStart || 0);
-      });
+export function handleFileDelete(file: TFile) {
+	if (!file || file.extension !== "md") {
+		return;
+	}
+	if (!isPathTracked(file.path)) {
+		return;
+	}
+	try {
+		// Only remove today's record for this file — historical data from
+		// previous days is preserved.
+		store().deleteActivity(store().today, file.path);
 
-    state.emit(EVENTS.REFRESH_EVERYTHING);
-  } catch (error) {
-    console.error(`KTR failed deleting ${file.path} | ${error}`);
-  }
+	} catch (error) {
+		console.error(`KTR failed deleting ${file.path} | ${error}`);
+	}
 }
 
 /**
- * @function handleFileCreate
- * - Add file to FileStats table?
- */
-export function handleFileCreate(file: TFile) {}
-
-/**
  * @function handleFileRename
- * Update all references to this file to match new filepath
+ * Update all references to this file to match new filepath.
+ * Store selectors in Heatmap/Entries auto-respond to the mutation.
  */
-export async function handleFileRename(file: TFile, oldPath: string) {
-  try {
-    // If the new path falls outside the tracking scope, drop any historical
-    // activity for the old path instead of carrying it over.
-    if (!isPathTracked(file.path)) {
-      await getDB().dailyActivity.where("filePath").equals(oldPath).delete();
-      state.emit(EVENTS.REFRESH_EVERYTHING);
-      return;
-    }
+export function handleFileRename(file: TFile, oldPath: string) {
+	// Skip non-markdown files — we only track .md activity.
+	if (!file || file.extension !== "md") {
+		return;
+	}
 
-    await getDB()
-      .dailyActivity.where("filePath")
-      .equals(oldPath)
-      .modify((dailyEntry) => {
-        dailyEntry.filePath = file.path;
-      });
-
-    state.emit(EVENTS.REFRESH_EVERYTHING);
-  } catch (error) {
-    console.error(`KTR failed renaming ${file.path} | ${error}`);
-  }
+	try {
+		// Always update the path so historical data follows the file,
+		// even if the file moves in/out of the tracking scope.
+		// Query-time filtering via isPathTracked ensures out-of-scope files
+		// don't contribute to stats.
+		store().renameFilePath(oldPath, file.path);
+	} catch (error) {
+		console.error(`KTR failed renaming ${file.path} | ${error}`);
+	}
 }

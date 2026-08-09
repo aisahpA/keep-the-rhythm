@@ -1,32 +1,25 @@
-import { addDeltaToActivity } from "@/db/queries";
-import { TFile } from "obsidian";
-import { EVENTS, state } from "@/core/pluginState";
+import { addOrUpdateActivity } from "@/core/dataQueries";
+import { Notice, TFile } from "obsidian";
 import { AbstractInputSuggest } from "obsidian";
 import { App, Modal, Setting, TextComponent } from "obsidian";
 import {
-	getExistingOrCreateNewEntry,
 	getFileNameWithoutExtension,
 } from "@/utils/utils";
-import { DailyActivity } from "@/db/types";
+import { getToday } from "@/utils/dateUtils";
 
 export class ManualEntryModal extends Modal {
-	private entry: DailyActivity = {
-		date: state.today,
-		filePath: "",
-		wordCountStart: 0,
-		charCountStart: 0,
-		wordsAdded: 0,
-		charsAdded: 0,
-	};
-
-	private wordsDelta = 0;
-	private charsDelta = 0;
-	private charsManuallySet = false;
-	private charsInput: TextComponent;
+	private thisDate: string;
+	private filePath: string;
+	private wordAdded: number;
 
 	constructor(app: App) {
 		super(app);
-		this.setTitle("Add a new entry:");
+		
+		this.thisDate = getToday();
+		this.filePath = "";
+		this.wordAdded = 0;
+
+		this.setTitle("Add or Update entry:");
 
 		new Setting(this.contentEl)
 			.setName("File")
@@ -34,59 +27,24 @@ export class ManualEntryModal extends Modal {
 			.addSearch((search) => {
 				search
 					.setPlaceholder("Example: folder1/folder2")
-					.setValue(state.currentActivity?.filePath || "")
+					.setValue("")
 					.onChange(async (value) => {
-						this.entry.filePath = value;
+						this.filePath = value;
 					});
 
 				new FileSuggest(this.app, search.inputEl);
 
 				search.inputEl.addEventListener("blur", async () => {
-					const value = search.getValue();
-					const file = state.plugin.app.vault.getFileByPath(value);
-
-					if (!file) {
-						console.error("KTR: Invalid file selection");
-						return;
-					}
-					this.entry = await getExistingOrCreateNewEntry(
-						file,
-						state.today,
-					);
+					this.filePath = search.getValue();
 				});
 			});
 
 		new Setting(this.contentEl)
 			.setClass("ktr-no-border")
-			.setName("Word Count")
+			.setName("Word Added")
 			.addText((text) => {
 				text.onChange((value) => {
-					this.wordsDelta = Number(value);
-
-					if (!this.charsManuallySet) {
-						const derived = this.wordsDelta * 5;
-						this.charsDelta = derived;
-						this.charsInput.setValue(
-							derived === 0 ? "" : String(derived),
-						);
-					}
-				});
-			});
-
-		new Setting(this.contentEl)
-			.setName("Character Count")
-			.setClass("ktr-no-border")
-			.setDesc("Defaults to words × 5. Edit to override.")
-			.addText((text) => {
-				this.charsInput = text;
-				text.setPlaceholder("Auto").onChange((value) => {
-					if (value === "") {
-						this.charsManuallySet = false;
-						this.charsDelta = this.wordsDelta * 5;
-					} else {
-						this.charsManuallySet = true;
-						this.charsDelta = Number(value);
-					}
+					this.wordAdded = Number(value);
 				});
 			});
 
@@ -99,9 +57,9 @@ export class ManualEntryModal extends Modal {
 			.addText((text) => {
 				momentTextComponent = text;
 				text.setPlaceholder("YYYY-MM-DD")
-					.setValue(state.today)
+					.setValue(this.thisDate)
 					.onChange((value) => {
-						this.entry.date = value;
+						this.thisDate = value;
 						const m = window.moment(value, "YYYY-MM-DD", true);
 						if (m.isValid() && hiddenDateInput)
 							hiddenDateInput.value = m.format("YYYY-MM-DD");
@@ -116,9 +74,7 @@ export class ManualEntryModal extends Modal {
 				hiddenDateInput = btn.buttonEl.createEl("input");
 				hiddenDateInput.type = "date";
 				hiddenDateInput.addClass("ktr-hidden-date-input");
-				hiddenDateInput.value = window
-					.moment(state.today, "YYYY-MM-DD")
-					.format("YYYY-MM-DD");
+				hiddenDateInput.value = getToday();
 
 				hiddenDateInput.addEventListener("change", () => {
 					const picked = window.moment(
@@ -128,25 +84,37 @@ export class ManualEntryModal extends Modal {
 					if (picked.isValid()) {
 						const formatted = picked.format("YYYY-MM-DD");
 						momentTextComponent.setValue(formatted);
-						this.entry.date = formatted;
+						this.thisDate = formatted;
 					}
 				});
 			});
 
 		new Setting(this.contentEl).addButton((btn) =>
 			btn
-				.setButtonText("Save New Entry")
+				.setButtonText("Save Entry")
 				.setCta()
 				.onClick(() => {
 					this.saveNewEntry();
-					state.emit(EVENTS.REFRESH_EVERYTHING);
 					this.close();
 				}),
 		);
 	}
 
 	private async saveNewEntry() {
-		await addDeltaToActivity(this.entry, this.wordsDelta, this.charsDelta);
+		if (this.wordAdded <= 0) {
+			new Notice("Please enter a valid word added");
+			return;
+		}
+		if (this.thisDate > getToday()) {
+			new Notice("Date must be before today");
+			return;
+		}
+		const file = this.app.vault.getFileByPath(this.filePath);
+		if (!file) {
+			new Notice(`File not found: ${this.filePath}`);
+			return;
+		}
+		await addOrUpdateActivity(file, this.thisDate, this.wordAdded);
 	}
 }
 
@@ -161,15 +129,17 @@ export class FileSuggest extends AbstractInputSuggest<TFile> {
 	}
 
 	getSuggestions(query: string): TFile[] {
+		if (!query.trim()) return [];
+		const queryLower = query.toLowerCase();
 		return this.app.vault
 			.getMarkdownFiles()
-			.filter((file) =>
-				file.path.toLowerCase().includes(query.toLowerCase()),
-			);
+			.filter((file) => file.path.toLowerCase().includes(queryLower))
+			.sort((a, b) => b.stat.mtime - a.stat.mtime)
+			.slice(0, 50);
 	}
 
 	renderSuggestion(file: TFile, el: HTMLElement) {
-		el.setText(getFileNameWithoutExtension(file.name));
+		el.setText(file.path);
 	}
 
 	selectSuggestion(file: TFile) {

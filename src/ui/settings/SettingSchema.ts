@@ -37,6 +37,13 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
           placeholder: "500",
         },
         {
+          key: "editorChangeSampleDelay",
+          type: "number",
+          title: "Editor Change Sample Delay",
+          description: "Seconds to wait after typing stops before sampling editor content for word count. Higher values reduce overhead but delay live stats.",
+          placeholder: "2",
+        },
+        {
           key: "trackedFolders",
           type: "custom",
           title: "Tracked Folders",
@@ -159,7 +166,7 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
           title: "Backup Folder Path",
           description:
             "Location where backup files will be stored (relative to vault root).",
-          placeholder: ".keep-the-rhythm",
+          placeholder: ".keep-the-rhythm2",
           visibleWhen: { "backupConfig.enabled": true },
         },
         {

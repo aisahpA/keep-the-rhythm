@@ -1,7 +1,7 @@
 import { Entries } from "@/ui/components/Entries";
 import { SlotWrapper } from "@/ui/components/SlotWrapper";
 import { parseSlotQuery } from "./codeBlockQuery";
-import { state } from "./pluginState";
+import { useStore } from "./store";
 import { MarkdownPostProcessorContext } from "obsidian";
 import { parseQueryToJSEP } from "./codeBlockQuery";
 import { createRoot } from "react-dom/client";
@@ -9,33 +9,27 @@ import React from "react";
 import { Heatmap } from "@/ui/components/Heatmap";
 import { MarkdownRenderChild } from "obsidian";
 
-///////////// HEATMAP
-// Previously returned a new function for each code block, now directly processes the block through a unique function
-export function createHeatmapCodeBlock(
-	source: string,
+/**
+ * Generic template for creating React code blocks that properly unmount on cleanup
+ */
+function renderReactCodeBlock(
 	el: HTMLElement,
 	ctx: MarkdownPostProcessorContext,
+	className: string,
+	element: React.ReactElement,
 ): void {
-	if (!state.plugin.data || !state.plugin.data.settings) {
-		return; // add log / error
+	if (!useStore.getState().settings) {
+		return;
 	}
 
-	const trimmedSource = source.trim();
-	const query = parseQueryToJSEP(trimmedSource);
-
-	if (!query?.options) return; // add log / error
-
-	const container = el.createDiv("heatmap-codeblock");
+	const container = el.createDiv(className);
 	const root = createRoot(container);
 
-	root.render(
-		React.createElement(Heatmap, {
-			heatmapConfig: query?.options,
-			query: query?.filter,
-			isCodeBlock: true,
-		}),
-	);
+	root.render(element);
 
+	// Without ctx.addChild the React root leaks: every time the markdown
+	// is re-rendered (theme switch, layout change, etc.) a new root is
+	// created and the previous one keeps its Zustand subscriptions alive.
 	ctx.addChild(
 		new (class extends MarkdownRenderChild {
 			constructor(containerEl: HTMLElement) {
@@ -46,7 +40,27 @@ export function createHeatmapCodeBlock(
 			}
 		})(container),
 	);
-	return;
+}
+
+///////////// HEATMAP
+// Previously returned a new function for each code block, now directly processes the block through a unique function
+export function createHeatmapCodeBlock(
+	source: string,
+	el: HTMLElement,
+	ctx: MarkdownPostProcessorContext,
+): void {
+	const trimmedSource = source.trim();
+	const query = parseQueryToJSEP(trimmedSource);
+
+	if (!query?.options) return; // add log / error
+
+	renderReactCodeBlock(el, ctx, "heatmap-codeblock",
+		React.createElement(Heatmap, {
+			heatmapConfig: query?.options,
+			query: query?.filter,
+			isCodeBlock: true,
+		})
+	);
 }
 
 ////////////// SLOTS
@@ -56,23 +70,15 @@ export function createSlotsCodeBlock(
 	el: HTMLElement,
 	ctx: MarkdownPostProcessorContext,
 ): void {
-	if (!state.plugin.data || !state.plugin.data.settings) {
-		return; // add log / error
-	}
 	const config = parseSlotQuery(source);
-	if (config.length === 0) return; // add log / error
+	if (config.length === 0) return;
 
-	const container = el.createDiv("slots-codeblock");
-	const root = createRoot(container);
-
-	root.render(
+	renderReactCodeBlock(el, ctx, "slots-codeblock",
 		React.createElement(SlotWrapper, {
 			slots: config,
 			isCodeBlock: true,
-		}),
+		})
 	);
-
-	return;
 }
 
 ///////////////// ENTRIES
@@ -106,7 +112,6 @@ function parseSource(source: string): {
 		} else if (excludeMatch) {
 			filters.push({ type: "excludes", value: excludeMatch[1] });
 		} else {
-			// Treat unrecognised lines as a date (existing behaviour)
 			date = line;
 		}
 	}
@@ -119,19 +124,12 @@ export function createEntriesCodeBlock(
 	el: HTMLElement,
 	ctx: MarkdownPostProcessorContext,
 ): void {
-	if (!state.plugin.data || !state.plugin.data.settings) {
-		return;
-	}
-
-	const container = el.createDiv("slots-codeblock");
-	const root = createRoot(container);
-
 	const { date, filters } = parseSource(source);
 
-	root.render(
+	renderReactCodeBlock(el, ctx, "slots-codeblock",
 		React.createElement(Entries, {
 			date,
 			filters,
-		}),
+		})
 	);
 }
