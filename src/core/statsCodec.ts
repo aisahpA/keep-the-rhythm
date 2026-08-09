@@ -136,7 +136,7 @@ function legacyRowsToDays(
  * Collect every filePath that appears in any day map.
  * Used to seed the activeFiles set at load time.
  */
-function collectActiveFiles(days: DaysMap): Set<string> {
+export function collectActiveFiles(days: DaysMap): Set<string> {
 	const set = new Set<string>();
 	for (const day of Object.values(days)) {
 		for (const path of Object.keys(day)) set.add(path);
