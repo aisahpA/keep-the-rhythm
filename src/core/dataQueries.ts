@@ -308,3 +308,15 @@ export const addOrUpdateActivity = async (
 
 	cur.upsertAdded(date, file.path, wordAdded);
 };
+
+
+/**
+ * Drop the module-level period-range and period-sum caches.  Called on
+ * plugin unload so stale entries can't leak into the next load cycle.
+ * (Both would self-heal via the today / historicalVersion guards, but
+ * resetting here keeps behaviour consistent with the other caches.)
+ */
+export function resetDataQueryCaches(): void {
+	_rangeCache = { today: "", ranges: {} };
+	_sumCache = { today: "", historicalVersion: -1, sums: {} };
+}

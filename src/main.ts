@@ -19,6 +19,8 @@ import {
 import { handleExternalDataChange } from "@/core/externalSync";
 import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
 import { resetStatsCodecCache } from "@/core/statsCodec";
+import { resetDataQueryCaches } from "@/core/dataQueries";
+import { resetFolderCache } from "@/core/pathFilter";
 
 export default class KeepTheRhythm extends Plugin {
 	
@@ -172,6 +174,8 @@ export default class KeepTheRhythm extends Plugin {
 		// leak into the next plugin load cycle.
 		resetDailySummaryCache();
 		resetStatsCodecCache();
+		resetDataQueryCaches();
+		resetFolderCache();
 	}
 
 	// #endregion
