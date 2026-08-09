@@ -121,6 +121,8 @@ export class ManualEntryModal extends Modal {
 export class FileSuggest extends AbstractInputSuggest<TFile> {
 	app: App;
 	inputEl: HTMLInputElement;
+	private searchTimer: ReturnType<typeof setTimeout> | null = null;
+	private pendingQuery = "";
 
 	constructor(app: App, inputEl: HTMLInputElement) {
 		super(app, inputEl);
@@ -128,7 +130,25 @@ export class FileSuggest extends AbstractInputSuggest<TFile> {
 		this.inputEl = inputEl;
 	}
 
-	getSuggestions(query: string): TFile[] {
+	/**
+	 * Debounced suggestion search.  While the user keeps typing, only the
+	 * last query within the window triggers the (potentially large-vault)
+	 * file scan; intermediate keystrokes collapse into one.  Obsidian
+	 * awaits the returned promise, and superseded searches are dropped
+	 * because their timers are cancelled before they fire.
+	 */
+	getSuggestions(query: string): Promise<TFile[]> {
+		this.pendingQuery = query;
+		return new Promise<TFile[]>((resolve) => {
+			if (this.searchTimer) clearTimeout(this.searchTimer);
+			this.searchTimer = setTimeout(() => {
+				this.searchTimer = null;
+				resolve(this.runSearch(this.pendingQuery));
+			}, 250);
+		});
+	}
+
+	private runSearch(query: string): TFile[] {
 		if (!query.trim()) return [];
 		const queryLower = query.toLowerCase();
 		return this.app.vault
