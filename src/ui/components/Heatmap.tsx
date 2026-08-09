@@ -164,41 +164,77 @@ export const Heatmap = ({
 	}, [weeksToShow, baseDateKey]);
 
 	
-	const cellData = useMemo(() => {
-		const data: {
-			date: string;
-			count: number;
-			intensity: number;
-			isToday: boolean;
-		}[] = [];
+	// Base grid cells (all NON-today dates) pre-rendered as stable React
+	// elements, split into [before-today, after-today] so today's cell
+	// (which sits in the MIDDLE of the grid — the current week's future
+	// days follow it) can be inserted at the correct position.  Rebuilt
+	// only when the historical partition, grid shape, or intensity config
+	// changes — never on keystrokes.  Because the element references are
+	// stable, React skips re-reconciling the ~363 historical cells on every
+	// data change; only today's cell is recreated.
+	const baseCells = useMemo(() => {
+		const before: React.ReactNode[] = [];
+		const after: React.ReactNode[] = [];
+		let hasToday = false;
+		const squared = !heatmapConfig.roundCells;
+		const mode = heatmapConfig.intensityMode;
 		for (const dateStr of cellDates) {
-			// Today's cell: read from the live overlay (re-scanned each keystroke).
-			// Historical cells: read from the stable base (never re-iterates on keystrokes).
-			let count: number;
 			if (dateStr === today) {
-				count = isFilterActive
-					? (filteredTodayData?.[dateStr] ?? 0)
-					: unfilteredTodayData;
-			} else {
-				count = baseCellData?.[dateStr] ?? 0;
+				hasToday = true;
+				continue;
 			}
-			data.push({
-				date: dateStr,
-				count,
-				intensity: intensityResolver(count),
-				isToday: dateStr === today,
-			});
+			const count = baseCellData?.[dateStr] ?? 0;
+			const cell = (
+				<HeatmapCell
+					key={dateStr}
+					count={count}
+					date={dateStr}
+					squared={squared}
+					intensity={intensityResolver(count)}
+					mode={mode}
+					isToday={false}
+				/>
+			);
+			(hasToday ? after : before).push(cell);
 		}
-		return data;
+		return { before, after, hasToday };
 	}, [
-		gridKey,
+		cellDates,
 		baseCellData,
+		intensityResolver,
+		heatmapConfig.roundCells,
+		heatmapConfig.intensityMode,
+		today,
+	]);
+
+	// Today's live cell — the ONLY element rebuilt per data change
+	// (debounced sample).  Inserted between the two stable base segments to
+	// preserve grid order.
+	const todayCell = useMemo(() => {
+		if (!baseCells.hasToday) return null;
+		const count = isFilterActive
+			? (filteredTodayData?.[today] ?? 0)
+			: unfilteredTodayData;
+		return (
+			<HeatmapCell
+				key={today}
+				count={count}
+				date={today}
+				squared={!heatmapConfig.roundCells}
+				intensity={intensityResolver(count)}
+				mode={heatmapConfig.intensityMode}
+				isToday
+			/>
+		);
+	}, [
+		baseCells.hasToday,
+		today,
+		isFilterActive,
 		filteredTodayData,
 		unfilteredTodayData,
 		intensityResolver,
-		today,
-		isFilterActive,
-		cellDates,
+		heatmapConfig.roundCells,
+		heatmapConfig.intensityMode,
 	]);
 
 	const wrapperClasses = useMemo(
@@ -256,28 +292,9 @@ export const Heatmap = ({
 								gridTemplateRows: `repeat(7, 10px)`,
 							}}
 						>
-							{cellData.map(
-								({
-									date,
-									count,
-									intensity,
-									isToday,
-								}) => (
-									<HeatmapCell
-										key={date}
-										count={count}
-										date={date}
-										squared={
-											!heatmapConfig.roundCells
-										}
-										intensity={intensity}
-										mode={
-											heatmapConfig.intensityMode
-										}
-										isToday={isToday}
-									/>
-								),
-							)}
+							{baseCells.before}
+							{baseCells.hasToday && todayCell}
+							{baseCells.after}
 						</div>
 					</div>
 				</div>
