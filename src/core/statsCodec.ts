@@ -29,15 +29,13 @@ import {
  */
 
 // ─── File dictionary cache ───
-let cachedFileDict: PersistedFileDict | null = null;
+let cachedFileDict: PersistedFileDict = {};
 let cachedNextId = 0;
 let lastDictSize = 0;
 
-function setCachedFileDict(dict: PersistedFileDict | null): void {
-	cachedFileDict = dict ? { ...dict } : null;
-	cachedNextId = dict
-		? Object.values(dict).reduce((m, v) => Math.max(m, v + 1), 0)
-		: 0;
+function setCachedFileDict(dict: PersistedFileDict): void {
+	cachedFileDict = { ...dict };
+	cachedNextId = Object.values(dict).reduce((m, v) => Math.max(m, v + 1), 0);
 }
 
 // ─── Encoded historical partition cache ───
@@ -53,7 +51,7 @@ let cachedEncHistoricalDays: PersistedDaysMap = {};
  * next load cycle.
  */
 export function resetStatsCodecCache(): void {
-	cachedFileDict = null;
+	cachedFileDict = {};
 	cachedNextId = 0;
 	lastDictSize = 0;
 	cachedEncToday = "";
@@ -107,11 +105,10 @@ export function collectActiveFiles(days: DaysMap): Set<string> {
 
 function encodeDayMap(
 	day: DayActivityMap,
-	fileDict: PersistedFileDict,
 ): Record<string, number> {
 	const encoded: Record<string, number> = {};
 	for (const [path, val] of Object.entries(day)) {
-		const id = fileDict[path];
+		const id = cachedFileDict[path];
 		if (id !== undefined) encoded[String(id)] = val;
 	}
 	return encoded;
@@ -141,18 +138,20 @@ function decodeDayMap(
  */
 function encodeDay(
 	day: DayActivityMap,
-	fileDict: PersistedFileDict,
 	nextId: number,
 ): { encoded: Record<string, number>; nextId: number } {
 	const kept: DayActivityMap = {};
 	for (const [filePath, added] of Object.entries(day)) {
 		if (added > 0) {
 			kept[filePath] = added;
-			if (!(filePath in fileDict)) fileDict[filePath] = nextId++;
+			if (!(filePath in (cachedFileDict ?? {}))) {
+				cachedFileDict ??= {};
+				cachedFileDict[filePath] = nextId++;
+			}
 		}
 	}
 	return kept
-		? { encoded: encodeDayMap(kept, fileDict), nextId }
+		? { encoded: encodeDayMap(kept), nextId }
 		: { encoded: {}, nextId };
 }
 
@@ -161,7 +160,6 @@ function encodeBaselines(
 	todayDay: DayActivityMap,
 	today: string,
 	todayBaselinesDay: string | null,
-	fileDict: PersistedFileDict,
 ): PersistedBaselines | undefined {
 	if (todayBaselinesDay !== today) return undefined;
 	const kept: DayActivityMap = {};
@@ -169,7 +167,7 @@ function encodeBaselines(
 		if ((todayDay[filePath] ?? 0) > 0) kept[filePath] = baseline;
 	}
 	if (!Object.keys(kept).length) return undefined;
-	return { day: today, baselines: encodeDayMap(kept, fileDict) };
+	return { day: today, baselines: encodeDayMap(kept) };
 }
 
 /**
@@ -186,7 +184,6 @@ function ensureHistoricalDays(
 	inputDays: DaysMap,
 	today: string,
 	historicalVersion: number,
-	fileDict: PersistedFileDict,
 	nextId: number,
 ): number {
 	if (today === cachedEncToday && historicalVersion === cachedEncHistVer)
@@ -195,7 +192,7 @@ function ensureHistoricalDays(
 	const encoded: PersistedDaysMap = {};
 	for (const [date, day] of Object.entries(inputDays)) {
 		if (date === today) continue;
-		const { encoded: encDay, nextId: nid } = encodeDay(day, fileDict, nextId);
+		const { encoded: encDay, nextId: nid } = encodeDay(day, nextId);
 		nextId = nid;
 		if (Object.keys(encDay).length > 0) encoded[date] = encDay;
 	}
@@ -276,7 +273,6 @@ function resolveFileDict(stats: StatsInput, activeFiles: Set<string>): void {
 }
 
 function filterOrphanedFileDict(
-	fileDict: PersistedFileDict,
 	days: PersistedDaysMap,
 	baselines: PersistedBaselines | undefined,
 ): PersistedFileDict {
@@ -288,7 +284,7 @@ function filterOrphanedFileDict(
 		for (const id of Object.keys(baselines.baselines)) usedIds.add(id);
 	}
 	const filtered: PersistedFileDict = {};
-	for (const [path, id] of Object.entries(fileDict)) {
+	for (const [path, id] of Object.entries(cachedFileDict)) {
 		if (usedIds.has(String(id))) filtered[path] = id;
 	}
 	return filtered;
@@ -340,16 +336,14 @@ export function encodePersistedStats({
 	days: PersistedDaysMap;
 	todayBaselines?: PersistedBaselines;
 } {
-	const fileDict: PersistedFileDict = cachedFileDict ?? (cachedFileDict = {});
 	let nextId = cachedNextId;
 
-	nextId = ensureHistoricalDays(inputDays, today, historicalVersion, fileDict, nextId);
+	nextId = ensureHistoricalDays(inputDays, today, historicalVersion, nextId);
 
 	// Today's live row: re-encoded fresh on every save.
 	const todayDay = inputDays[today] ?? {};
 	const { encoded: encodedTodayDay, nextId: todayNextId } = encodeDay(
 		todayDay,
-		fileDict,
 		nextId,
 	);
 	cachedNextId = todayNextId;
@@ -364,18 +358,18 @@ export function encodePersistedStats({
 		todayDay,
 		today,
 		todayBaselinesDay,
-		fileDict,
 	);
 
 	// Drop orphaned fileDict entries (left behind by file renames).
-	// Cache only grows (never shrinks), so when its size has increased
-	// since the last save, a rename likely happened and we filter.
+	// Cache only grows (never shrinks), but !== is safer than > because
+	// it catches both directions without relying on the monotonicity
+	// assumption holding in practice.
 	// Cache stays as-is (IDs never decrease); only the persisted output
 	// is filtered to the paths still referenced by `days`.
-	const outputFileDict = Object.keys(fileDict).length > lastDictSize
-		? filterOrphanedFileDict(fileDict, days, encodedBaselines)
-		: fileDict;
-	lastDictSize = Object.keys(fileDict).length;
+	const outputFileDict = Object.keys(cachedFileDict).length !== lastDictSize
+		? filterOrphanedFileDict(days, encodedBaselines)
+		: cachedFileDict;
+	lastDictSize = Object.keys(cachedFileDict).length;
 
 	return {
 		fileDict: outputFileDict,
