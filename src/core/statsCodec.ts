@@ -359,12 +359,6 @@ export function encodePersistedStats({
 		...(Object.keys(encodedTodayDay).length > 0 ? { [today]: encodedTodayDay } : {}),
 	};
 
-	const result: {
-		fileDict: PersistedFileDict;
-		days: PersistedDaysMap;
-		todayBaselines?: PersistedBaselines;
-	} = { fileDict, days };
-
 	const encodedBaselines = encodeBaselines(
 		todayBaselines,
 		todayDay,
@@ -372,21 +366,20 @@ export function encodePersistedStats({
 		todayBaselinesDay,
 		fileDict,
 	);
-	if (encodedBaselines) result.todayBaselines = encodedBaselines;
 
 	// Drop orphaned fileDict entries (left behind by file renames).
 	// Cache only grows (never shrinks), so when its size has increased
 	// since the last save, a rename likely happened and we filter.
 	// Cache stays as-is (IDs never decrease); only the persisted output
 	// is filtered to the paths still referenced by `days`.
-	if (Object.keys(fileDict).length > lastDictSize) {
-		result.fileDict = filterOrphanedFileDict(
-			fileDict,
-			result.days,
-			encodedBaselines,
-		);
-	}
+	const outputFileDict = Object.keys(fileDict).length > lastDictSize
+		? filterOrphanedFileDict(fileDict, days, encodedBaselines)
+		: fileDict;
 	lastDictSize = Object.keys(fileDict).length;
 
-	return result;
+	return {
+		fileDict: outputFileDict,
+		days,
+		...(encodedBaselines && { todayBaselines: encodedBaselines }),
+	};
 }
