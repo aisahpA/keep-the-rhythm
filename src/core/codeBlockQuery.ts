@@ -22,7 +22,7 @@ jsep.addBinaryOp("CONTAINS", 6);
 // across markdown re-renders.  Without this, every theme switch / layout
 // change would re-parse and yield a fresh AST reference, which then
 // invalidated Heatmap's compiledEvaluator useMemo on every keystroke.
-// 256 entries is plenty for any realistic vault.
+// 32 entries is plenty for any realistic vault.
 const MAX_AST_CACHE = 32;
 const filterAstCache = new Map<string, any | null>();
 

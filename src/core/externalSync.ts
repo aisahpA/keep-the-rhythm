@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, PluginData } from "@/defs/types";
 import { DayActivityMap, DaysMap } from "@/defs/types";
 import { useStore } from "./store";
-import { decodeActivities } from "./statsCodec";
+import { decodeActivities, collectActiveFiles } from "./statsCodec";
 import KeepTheRhythm from "../main";
 import { Notice } from "obsidian";
 
@@ -83,18 +83,25 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 			return;
 		}
 
-		// 7. 一次性 setState
+		// 7. 合并 activeFiles —— 取并集(保留旧条目不产生误判)。
+		const mergedActiveFiles = new Set([
+			...cur.activeFiles,
+			...collectActiveFiles(mergedDays),
+		]);
+
+		// 8. 一次性 setState
 		useStore.setState({
 			settings: newSettings,
 			days: mergedDays,
 			todayBaselines: mergedBaselines,
 			todayBaselinesDay: mergedBaselinesDay,
+			activeFiles: mergedActiveFiles,
 			today,
 			todayVersion: cur.todayVersion + 1,
 			historicalVersion: cur.historicalVersion + 1,
 		});
 
-		// 8. 写回磁盘
+		// 9. 写回磁盘
 		useStore.getState().requestPersist();
 	} catch (error) {
 		console.error("Error in handleExternalDataChange:", error);

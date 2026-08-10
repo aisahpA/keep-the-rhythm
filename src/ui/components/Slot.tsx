@@ -136,7 +136,7 @@ export const Slot = React.memo(function Slot({
 
 	return (
 		<div className="slot">
-			<div id="customID" className="slot__header">
+			<div className="slot__header">
 				<div className="slot__label">{getSlotLabel(optionType)}</div>
 				{!isCodeBlock && (
 					<div className="slot__buttons">

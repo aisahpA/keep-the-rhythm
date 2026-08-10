@@ -1,9 +1,7 @@
-import React from "react";
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { weekdaysNames, monthNames } from "../texts";
-import { getDateForCell } from "@/utils/dateUtils";
-import { formatDate, getToday } from "@/utils/dateUtils";
+import { getDateForCell, formatDate, getToday } from "@/utils/dateUtils";
 import { ActivityRecord, DayActivityMap } from "@/defs/types";
 import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
 import { HeatmapCell } from "./HeatmapCell";
@@ -16,174 +14,168 @@ const moment = _moment as unknown as typeof _moment.default;
 
 interface HeatmapProps {
 	heatmapConfig: HeatmapConfig;
-	query?: any;
+	fileFilter?: any;
 	isCodeBlock?: boolean;
 }
 
 export const Heatmap = ({
 	heatmapConfig,
-	query,
+	fileFilter,
 	isCodeBlock,
 }: HeatmapProps) => {
+	// ── Destructure config ──────────────────────────────────────
 	const weeksToShow = heatmapConfig.numberOfWeeks || 52;
-	const baseDate = heatmapConfig.startDate
-		? new Date(heatmapConfig.startDate)
-		: undefined;
-	const baseDateKey = heatmapConfig.startDate ?? null;
+	const startDate = heatmapConfig.startDate;
+	const {
+		intensityMode,
+		roundCells,
+		intensityStops,
+		hideMonthLabels,
+		hideWeekdayLabels,
+		alignLeft,
+	} = heatmapConfig;
 
-	// Primitive key for the grid shape. When no startDate is given,
-	// getDateForCell reads the current week, so the key must also track today.
-	const gridKey = baseDateKey ? `${weeksToShow}:${baseDateKey}` : `${weeksToShow}:${getToday()}`;
+	const baseDate = startDate ? new Date(startDate) : undefined;
+
+	// Grid shape key: tracks weeks + baseDate (or today when no startDate).
+	const gridKey = startDate
+		? `${weeksToShow}:${startDate}`
+		: `${weeksToShow}:${getToday()}`;
 
 	const today = getToday();
-
 	const todayVersion = useStore(selectTodayVersion);
 	const historicalVersion = useStore(selectHistoricalVersion);
-	
-	const compiledEvaluator = useMemo(() => {
-		if (!query) return null;
+
+	// ── Filter state ────────────────────────────────────────────
+	const filterState = useMemo(() => {
+		if (!fileFilter) return null;
+		if (
+			fileFilter.type === "BinaryExpression" &&
+			(fileFilter.operator === "starts_with" || fileFilter.operator === "STARTS_WITH")
+		) {
+			const raw = fileFilter.right?.value;
+			if (typeof raw === "string") {
+				const prefix = raw.startsWith("/") ? raw.slice(1) : raw;
+				return { kind: "prefix" as const, prefix };
+			}
+		}
 		try {
-			return compileEvaluator(query);
-		} catch (e) {
-			console.error("Error compiling query:", e);
+			const evaluator = compileEvaluator(fileFilter);
+			return { kind: "evaluator" as const, evaluator };
+		} catch {
 			return null;
 		}
-	}, [query]);
+	}, [fileFilter]);
 
-	const hasFilter =
-		(query?.type === "BinaryExpression" &&
-			(query?.operator === "starts_with" ||
-				query?.operator === "STARTS_WITH")) ||
-		compiledEvaluator;
-
-	const isStartsWith =
-		query?.type === "BinaryExpression" &&
-		(query?.operator === "starts_with" ||
-			query?.operator === "STARTS_WITH");
-	const prefix =
-		isStartsWith && typeof query?.right?.value === "string"
-			? query.right.value.startsWith("/")
-				? query.right.value.substring(1)
-				: query.right.value
-			: null;
-
+	// ── Cell dates for the visible grid ─────────────────────────
 	const cellDates = useMemo(() => {
 		const dates: string[] = [];
 		for (let week = 0; week < weeksToShow; week++) {
 			for (let day = 0; day < 7; day++) {
-				const date = getDateForCell(week, day, weeksToShow, baseDate);
-				dates.push(formatDate(date));
+				dates.push(formatDate(getDateForCell(week, day, weeksToShow, baseDate)));
 			}
 		}
 		return dates;
 	}, [gridKey]);
 
-	// No-filter path: depends ONLY on version numbers + grid shape.  The
-	// underlying getDailySummaryMap cache is version-keyed, so a stable
-	// dailyActivity reference is irrelevant here.  This is the hot path
-	// for the sidebar heatmap (no codeBlock filter) and must not invalidate
-	// on every keystroke.
-	const cachedHeatmapData = useMemo(() => {
-		const fullMap = getDailySummaryMap();
-		const filteredMap: Record<string, number> = {};
-		for (const date of cellDates) {
-			filteredMap[date] = fullMap[date] || 0;
-		}
-		return filteredMap;
-	}, [todayVersion, historicalVersion, gridKey]);
+	// ── Historical data (non-today cells) ──────────────────────
+	// Cached by (historicalVersion, grid, filter) — never invalidated by
+	// todayVersion, so typing today never re-walks historical rows.
+	const historicalCellData = useMemo(() => {
+		return buildCellData(cellDates, today, filterState);
+	}, [historicalVersion, gridKey, cellDates, today, filterState]);
 
-	// Filtered path: iterate ONLY the days inside the visible grid
-	// (cellDates), never the full history.  Split into two tiers so that
-	// keystrokes (todayVersion changes) only re-scan today's row:
-	//   • filteredHistorical — every non-today cell; cached by
-	//     (historicalVersion, grid, query) — NOT todayVersion, so typing
-	//     today never re-walks historical rows.
-	//   • filteredToday — today's cell only; re-scanned each keystroke.
-	const filteredHistorical = useMemo(() => {
-		if (!hasFilter) return null;
-		const { days } = useStore.getState();
-		const dateMap: Record<string, number> = {};
-		for (const date of cellDates) {
-			if (date === today) continue;
-			const day = days[date];
-			if (day) filterDayInto(date, day, prefix, compiledEvaluator, dateMap);
+	// ── Today's live cell ──────────────────────────────────────
+	// Re-read on every keystroke (todayVersion).
+	const todayCellData = useMemo(() => {
+		if (!filterState) {
+			const fullMap = getDailySummaryMap();
+			return fullMap[today] ?? 0;
 		}
-		return dateMap;
-	}, [hasFilter, today, historicalVersion, prefix, compiledEvaluator,
-		cellDates,
-	]);
-
-	const filteredToday = useMemo(() => {
-		if (!hasFilter) return null;
 		const { days } = useStore.getState();
-		const dateMap: Record<string, number> = {};
 		const day = days[today];
-		if (day) filterDayInto(today, day, prefix, compiledEvaluator, dateMap);
-		return dateMap;
-	}, [hasFilter, today, todayVersion, prefix, compiledEvaluator]);
+		if (!day) return 0;
+		const map: Record<string, number> = {};
+		applyFilter(today, day, filterState, map);
+		return map[today] ?? 0;
+	}, [todayVersion, today, filterState]);
 
-	const filteredHeatmapData = useMemo(() => {
-		if (!hasFilter) return null;
-		return { ...filteredHistorical, ...filteredToday };
-	}, [hasFilter, filteredHistorical, filteredToday]);
-
-	const heatmapData = filteredHeatmapData ?? cachedHeatmapData;
-
-	const getIntensityLevel = useMemo(
-		() => buildIntensityResolver(heatmapConfig),
-		[heatmapConfig],
+	// ── Intensity ──────────────────────────────────────────────
+	const intensityResolver = useMemo(
+		() => buildIntensityResolver(intensityMode, intensityStops),
+		[intensityMode, intensityStops],
 	);
 
+	// ── Month labels ───────────────────────────────────────────
 	const monthLabels = useMemo(() => {
 		const labels: { month: string; week: number }[] = [];
 		let lastMonth = -1;
-
 		for (let week = 0; week < weeksToShow; week++) {
-			const date = getDateForCell(week, 0, weeksToShow, baseDate);
-			const m = moment(date);
+			const m = moment(getDateForCell(week, 0, weeksToShow, baseDate));
 			const month = m.month();
-			const dayOfMonth = m.date();
-
-			if (month !== lastMonth && dayOfMonth <= 7) {
+			if (month !== lastMonth && m.date() <= 7) {
 				labels.push({ month: monthNames[month], week });
 				lastMonth = month;
 			}
 		}
-
 		return labels;
-	}, [weeksToShow, baseDateKey]);
+	}, [weeksToShow, baseDate]);
 
-	
-	const cellData = useMemo(() => {
-		const data: {
-			date: string;
-			count: number;
-			intensity: number;
-			isToday: boolean;
-		}[] = [];
-		for (const dateStr of cellDates) {
-			const count = heatmapData[dateStr] ?? 0;
-			data.push({
-				date: dateStr,
-				count,
-				intensity: getIntensityLevel(count),
-				isToday: dateStr === today,
-			});
+	const squared = !roundCells;
+
+	// ── Pre-render historical cells, split at today's position ─
+	const { before, after, hasToday } = useMemo(() => {
+		const before: React.ReactNode[] = [];
+		const after: React.ReactNode[] = [];
+		let hasToday = false;
+		for (const date of cellDates) {
+			if (date === today) {
+				hasToday = true;
+				continue;
+			}
+			const count = historicalCellData[date] ?? 0;
+			(hasToday ? after : before).push(
+				<HeatmapCell
+					key={date}
+					count={count}
+					date={date}
+					squared={squared}
+					intensity={intensityResolver(count)}
+					mode={intensityMode}
+					isToday={false}
+				/>,
+			);
 		}
-		return data;
-	}, [gridKey, heatmapData, getIntensityLevel, today]);
+		return { before, after, hasToday };
+	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today]);
+
+	const todayCell = useMemo(() => {
+		if (!hasToday) return null;
+		return (
+			<HeatmapCell
+				key={today}
+				count={todayCellData}
+				date={today}
+				squared={squared}
+				intensity={intensityResolver(todayCellData)}
+				mode={intensityMode}
+				isToday
+			/>
+		);
+	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode]);
 
 	const wrapperClasses = useMemo(
 		() =>
-			`
-		heatmap-wrapper
-		${heatmapConfig.hideWeekdayLabels ? "hide-weekday-labels" : ""}
-		${heatmapConfig.hideMonthLabels ? "hide-month-labels" : ""}
-		${heatmapConfig.alignLeft ? "align-left" : ""}
-		${isCodeBlock ? "is-code-block-heatmap" : ""}
-		`.trim(),
-		[heatmapConfig, isCodeBlock],
+			`heatmap-wrapper
+    ${hideWeekdayLabels ? "hide-weekday-labels" : ""}
+    ${hideMonthLabels ? "hide-month-labels" : ""}
+    ${alignLeft ? "align-left" : ""}
+    ${isCodeBlock ? "is-code-block-heatmap" : ""}`.trim(),
+		[hideWeekdayLabels, hideMonthLabels, alignLeft, isCodeBlock],
 	);
+
+	const gridCols = `repeat(${weeksToShow}, 10px)`;
+	const gridRows = `repeat(7, 10px)`;
 
 	return (
 		<RadixTooltip.Provider
@@ -191,24 +183,20 @@ export const Heatmap = ({
 			skipDelayDuration={1000}
 			disableHoverableContent
 		>
-			{heatmapData && (
+			{historicalCellData && (
 				<div className={wrapperClasses}>
-					{!heatmapConfig.hideWeekdayLabels && (
+					{!hideWeekdayLabels && (
 						<div className="week-day-labels">
 							{weekdaysNames.map((day) => (
-								<div key={day} className="week-day-label">
-									{day}
-								</div>
+								<div key={day} className="week-day-label">{day}</div>
 							))}
 						</div>
 					)}
 					<div className="heatmap-content">
-						{!heatmapConfig.hideMonthLabels && (
+						{!hideMonthLabels && (
 							<div
 								className="month-labels"
-								style={{
-									gridTemplateColumns: `repeat(${weeksToShow}, 10px)`,
-								}}
+								style={{ gridTemplateColumns: gridCols }}
 							>
 								{monthLabels.map(({ month, week }) => (
 									<div
@@ -224,32 +212,13 @@ export const Heatmap = ({
 						<div
 							className="heatmap-new-grid"
 							style={{
-								gridTemplateColumns: `repeat(${weeksToShow}, 10px)`,
-								gridTemplateRows: `repeat(7, 10px)`,
+								gridTemplateColumns: gridCols,
+								gridTemplateRows: gridRows,
 							}}
 						>
-							{cellData.map(
-								({
-									date,
-									count,
-									intensity,
-									isToday,
-								}) => (
-									<HeatmapCell
-										key={date}
-										count={count}
-										date={date}
-										squared={
-											!heatmapConfig.roundCells
-										}
-										intensity={intensity}
-										mode={
-											heatmapConfig.intensityMode
-										}
-										isToday={isToday}
-									/>
-								),
-							)}
+							{before}
+							{hasToday && todayCell}
+							{after}
 						</div>
 					</div>
 				</div>
@@ -258,76 +227,102 @@ export const Heatmap = ({
 	);
 };
 
-const buildIntensityResolver = (
-	heatmapConfig: HeatmapConfig,
-): ((count: number) => number) => {
-	if (
-		!heatmapConfig ||
-		!heatmapConfig.intensityStops ||
-		!heatmapConfig.intensityMode
-	) {
-		return () => 0;
+// ────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────
+
+interface PrefixFilter {
+	kind: "prefix";
+	prefix: string;
+}
+
+interface EvaluatorFilter {
+	kind: "evaluator";
+	evaluator: (row: ActivityRecord) => boolean;
+}
+
+type FilterState = PrefixFilter | EvaluatorFilter | null;
+
+/**
+ * Build the full cell data map for all `cellDates`, excluding `today`.
+ */
+function buildCellData(
+	cellDates: string[],
+	today: string,
+	filter: FilterState,
+): Record<string, number> {
+	const map: Record<string, number> = {};
+
+	if (!filter) {
+		const fullMap = getDailySummaryMap();
+		for (const date of cellDates) {
+			if (date === today) continue;
+			map[date] = fullMap[date] ?? 0;
+		}
+	} else {
+		const { days } = useStore.getState();
+		for (const date of cellDates) {
+			if (date === today) continue;
+			const day = days[date];
+			if (day) applyFilter(date, day, filter, map);
+		}
 	}
 
-	const { low, medium, high } = heatmapConfig.intensityStops;
-	const mode = heatmapConfig.intensityMode;
+	return map;
+}
+
+function applyFilter(
+	date: string,
+	day: DayActivityMap,
+	filter: Exclude<FilterState, null>,
+	map: Record<string, number>,
+): void {
+	for (const [filePath, wordsAdded] of Object.entries(day)) {
+		const matches =
+			filter.kind === "prefix"
+				? filePath.startsWith(filter.prefix)
+				: filter.evaluator({ date, filePath, wordsAdded });
+		if (matches) {
+			map[date] = (map[date] ?? 0) + wordsAdded;
+		}
+	}
+}
+
+function buildIntensityResolver(
+	mode: HeatmapConfig["intensityMode"],
+	stops: { low: number; medium: number; high: number },
+): (count: number) => number {
+	if (!stops) return () => 0;
+
+	const { low, medium, high } = stops;
 
 	switch (mode) {
 		case HeatmapColorModes.GRADUAL:
-		case HeatmapColorModes.LIQUID: {
-			if (high === low) {
-				return (count) => (count >= high ? 100 : 0);
-			}
+		case HeatmapColorModes.LIQUID:
+			if (high === low) return (c) => (c >= high ? 100 : 0);
 			const span = high - low;
-			return (count) => {
-				if (count <= low) return 0;
-				if (count >= high) return 100;
-				return ((count - low) / span) * 100;
+			return (c) => {
+				if (c <= low) return 0;
+				if (c >= high) return 100;
+				return ((c - low) / span) * 100;
 			};
-		}
 
 		case HeatmapColorModes.SOLID:
-			return (count) => (count >= low ? 4 : 0);
+			return (c) => (c >= low ? 4 : 0);
 
 		case HeatmapColorModes.STOPS: {
 			const sorted = [low, medium, high].sort((a, b) => a - b);
-			const [minThreshold, midThreshold, maxThreshold] = sorted;
-			return (count) => {
-				if (count <= 0) return 0;
-				if (count < minThreshold) return 1;
-				if (count < midThreshold) return 2;
-				if (count < maxThreshold) return 3;
+			const [t1, t2, t3] = sorted;
+			return (c) => {
+				if (c <= 0) return 0;
+				if (c < t1) return 1;
+				if (c < t2) return 2;
+				if (c < t3) return 3;
 				return 4;
 			};
 		}
 
 		default:
 			return () => 0;
-	}
-};
-
-/**
- * Accumulate matching rows from a single day into `dateMap` using the
- * resolved filter (a starts_with prefix or a compiled evaluator).
- */
-function filterDayInto(
-	date: string,
-	day: DayActivityMap,
-	prefix: string | null,
-	evaluator: ((row: ActivityRecord) => boolean) | null,
-	dateMap: Record<string, number>,
-): void {
-	for (const [filePath, wordsAdded] of Object.entries(day)) {
-		let matches: boolean;
-		if (prefix !== null) {
-			matches = filePath.startsWith(prefix);
-		} else if (evaluator) {
-			matches = evaluator({ date, filePath, wordsAdded });
-		} else {
-			matches = true;
-		}
-		if (matches) {
-			dateMap[date] = (dateMap[date] || 0) + wordsAdded;
-		}
 	}
 }

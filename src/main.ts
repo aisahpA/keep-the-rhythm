@@ -19,6 +19,8 @@ import {
 import { handleExternalDataChange } from "@/core/externalSync";
 import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
 import { resetStatsCodecCache } from "@/core/statsCodec";
+import { resetDataQueryCaches } from "@/core/dataQueries";
+import { resetFolderCache } from "@/core/pathFilter";
 
 export default class KeepTheRhythm extends Plugin {
 	
@@ -88,7 +90,7 @@ export default class KeepTheRhythm extends Plugin {
 		});
 
 		this.addCommand({
-			id: "open-keep-the-rhythm2",
+			id: "open-sidebar",
 			name: "Open sidebar view",
 			callback: () => {
 				activateSidebarView();
@@ -96,8 +98,8 @@ export default class KeepTheRhythm extends Plugin {
 		});
 
 		this.addCommand({
-			id: "add-ktr-manual-entry",
-			name: "Add manual entry",
+			id: "upsert-entry",
+			name: "Add or Update entry",
 			callback: () => {
 				new ManualEntryModal(this.app).open();
 			},
@@ -172,6 +174,8 @@ export default class KeepTheRhythm extends Plugin {
 		// leak into the next plugin load cycle.
 		resetDailySummaryCache();
 		resetStatsCodecCache();
+		resetDataQueryCaches();
+		resetFolderCache();
 	}
 
 	// #endregion

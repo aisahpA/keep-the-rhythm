@@ -23,49 +23,26 @@ import {
  *   and `todayBaselines` with small integer IDs, cutting storage by
  *   ~60–65% for multi-month histories.
  *
- *   Backward compat: the historical structure on master (a `dailyActivity`
- *   array of rows) is accepted transparently on decode and migrated.
- *   Encoding always writes the new dictionary-encoded format.
- *
- *   Legacy v1.x `stats.dailyActivity` (array of rows) is also accepted
- *   on decode and migrated, so upgrading never loses history.
+ *   Backward compat: legacy `stats.dailyActivity` (array of rows) is
+ *   accepted transparently on decode and migrated. Encoding always
+ *   writes the new dictionary-encoded format.
  */
 
 // ─── File dictionary cache ───
-//
-// We remember the fileDict from the most recent decode so that encode
-// can reuse existing IDs instead of reassigning them from scratch every
-// time.  This keeps IDs stable across saves, which makes diffs readable
-// and avoids needless churn in the persisted file.
-//
-// IDs are assigned in auto-increment order: new paths get maxId + 1.
-// Dead paths (files with zero rows everywhere) are NOT GC'd from the
-// dictionary — their IDs stay reserved.  The cost is trivial (a few
-// bytes per dead path per save) and the benefit is permanent ID stability.
 let cachedFileDict: PersistedFileDict | null = null;
-let cachedNextId: number = 0;
+let cachedNextId = 0;
+let lastDictSize = 0;
 
-/**
- * Remember a fileDict from a decode operation so the next encode can
- * reuse its ID assignments.  Pass null to reset (e.g. on unload).
- */
-export function setCachedFileDict(dict: PersistedFileDict | null): void {
+function setCachedFileDict(dict: PersistedFileDict | null): void {
 	cachedFileDict = dict ? { ...dict } : null;
 	cachedNextId = dict
-		? Object.keys(dict).reduce((m, p) => Math.max(m, dict[p] + 1), 0)
+		? Object.values(dict).reduce((m, v) => Math.max(m, v + 1), 0)
 		: 0;
 }
 
 // ─── Encoded historical partition cache ───
-//
-// The persisted `days` are split into a *historical* partition (all dates
-// except today) and today's live row.  Keystrokes only ever change today's
-// row, so re-encoding every historical date on each save is wasted work
-// that grows with history size.  We cache the encoded historical partition
-// keyed by (today, historicalVersion): it is only rebuilt when today rolls
-// over, historical data is edited, or an external sync replaces the data.
-//
-// Today's row is re-encoded fresh on every save (cheap, O(files today)).
+// Keystrokes only change today's row, so we cache the encoded historical
+// partition keyed by (today, historicalVersion) and skip re-scanning it.
 let cachedEncToday = "";
 let cachedEncHistVer = -1;
 let cachedEncHistoricalDays: PersistedDaysMap = {};
@@ -78,6 +55,7 @@ let cachedEncHistoricalDays: PersistedDaysMap = {};
 export function resetStatsCodecCache(): void {
 	cachedFileDict = null;
 	cachedNextId = 0;
+	lastDictSize = 0;
 	cachedEncToday = "";
 	cachedEncHistVer = -1;
 	cachedEncHistoricalDays = {};
@@ -87,13 +65,9 @@ export interface DecodedActivities {
 	days: DaysMap;
 	todayBaselines: DayActivityMap;
 	todayBaselinesDay: string | null;
-	/** All file paths that ever appeared in days (loaded + runtime).
-	 *  Used as a fast rejection filter for rename events so we can skip
-	 *  the full O(D) scan when a file was never tracked. */
 	activeFiles: Set<string>;
 }
 
-/** The persisted `stats` section as accepted by decode. */
 type StatsInput =
 	| {
 			days?: DaysMap | PersistedDaysMap;
@@ -103,28 +77,19 @@ type StatsInput =
 	  }
 	| undefined;
 
-/** True when the stats carry a usable (non-empty) file dictionary. */
 function hasFileDict(
 	stats: StatsInput,
 ): stats is NonNullable<StatsInput> & { fileDict: PersistedFileDict } {
 	return !!stats?.fileDict && Object.keys(stats.fileDict).length > 0;
 }
 
-/**
- * Build the id→path lookup array from a fileDict.  Index `i` holds the
- * path whose numeric ID is `i`.
- */
 function buildIdToPath(fileDict: PersistedFileDict): string[] {
 	const idToPath: string[] = [];
-	for (const [path, id] of Object.entries(fileDict)) {
-		idToPath[id] = path;
-	}
+	for (const [path, id] of Object.entries(fileDict)) idToPath[id] = path;
 	return idToPath;
 }
 
-function legacyRowsToDays(
-	rows: LegacyActivityData[] | undefined,
-): DaysMap {
+function legacyRowsToDays(rows: LegacyActivityData[] | undefined): DaysMap {
 	const days: DaysMap = {};
 	for (const r of rows ?? []) {
 		(days[r.date] ??= {})[r.filePath] = r.wordsAdded;
@@ -136,18 +101,10 @@ function legacyRowsToDays(
  * Collect every filePath that appears in any day map.
  * Used to seed the activeFiles set at load time.
  */
-function collectActiveFiles(days: DaysMap): Set<string> {
-	const set = new Set<string>();
-	for (const day of Object.values(days)) {
-		for (const path of Object.keys(day)) set.add(path);
-	}
-	return set;
+export function collectActiveFiles(days: DaysMap): Set<string> {
+	return new Set(Object.values(days).flatMap((d) => Object.keys(d)));
 }
 
-/**
- * Encode a single day map (path → value) to its dictionary-encoded form
- * (id → value) using the given path→id dictionary.
- */
 function encodeDayMap(
 	day: DayActivityMap,
 	fileDict: PersistedFileDict,
@@ -170,8 +127,7 @@ function decodeDayMap(
 ): DayActivityMap {
 	const day: DayActivityMap = {};
 	for (const [idStr, val] of Object.entries(encoded)) {
-		const id = Number(idStr);
-		const path = idToPath[id];
+		const path = idToPath[Number(idStr)];
 		if (path !== undefined) day[path] = val;
 	}
 	return day;
@@ -195,19 +151,11 @@ function encodeDay(
 			if (!(filePath in fileDict)) fileDict[filePath] = nextId++;
 		}
 	}
-	if (Object.keys(kept).length === 0) {
-		return { encoded: {}, nextId };
-	}
-	return { encoded: encodeDayMap(kept, fileDict), nextId };
+	return kept
+		? { encoded: encodeDayMap(kept, fileDict), nextId }
+		: { encoded: {}, nextId };
 }
 
-/**
- * Keep only baselines for files that actually have added words today, and
- * encode them.  A file that was merely opened but never written needs no
- * persisted anchor (it will re-anchor on its next real touch).  Returns
- * undefined when there is nothing to persist (stale day or no positive
- * rows).
- */
 function encodeBaselines(
 	todayBaselines: DayActivityMap,
 	todayDay: DayActivityMap,
@@ -220,7 +168,7 @@ function encodeBaselines(
 	for (const [filePath, baseline] of Object.entries(todayBaselines)) {
 		if ((todayDay[filePath] ?? 0) > 0) kept[filePath] = baseline;
 	}
-	if (Object.keys(kept).length === 0) return undefined;
+	if (!Object.keys(kept).length) return undefined;
 	return { day: today, baselines: encodeDayMap(kept, fileDict) };
 }
 
@@ -241,9 +189,8 @@ function ensureHistoricalDays(
 	fileDict: PersistedFileDict,
 	nextId: number,
 ): number {
-	if (today === cachedEncToday && historicalVersion === cachedEncHistVer) {
+	if (today === cachedEncToday && historicalVersion === cachedEncHistVer)
 		return nextId;
-	}
 
 	const encoded: PersistedDaysMap = {};
 	for (const [date, day] of Object.entries(inputDays)) {
@@ -252,7 +199,6 @@ function ensureHistoricalDays(
 		nextId = nid;
 		if (Object.keys(encDay).length > 0) encoded[date] = encDay;
 	}
-
 	cachedEncHistoricalDays = encoded;
 	cachedEncToday = today;
 	cachedEncHistVer = historicalVersion;
@@ -272,7 +218,6 @@ function ensureHistoricalDays(
 function decodeDays(stats: StatsInput): DaysMap {
 	const rawDays = stats?.days;
 	if (hasFileDict(stats) && rawDays && Object.keys(rawDays).length > 0) {
-		// Dictionary-encoded: expand id → path.
 		const idToPath = buildIdToPath(stats.fileDict);
 		const days: DaysMap = {};
 		for (const [date, encDay] of Object.entries(rawDays)) {
@@ -280,7 +225,6 @@ function decodeDays(stats: StatsInput): DaysMap {
 		}
 		return days;
 	}
-	// Legacy dailyActivity array — migrate to the `days` shape.
 	return legacyRowsToDays(stats?.dailyActivity);
 }
 
@@ -294,19 +238,9 @@ function decodeBaselines(
 	today: string,
 ): { todayBaselines: DayActivityMap; todayBaselinesDay: string | null } {
 	const persisted = stats?.todayBaselines;
-	// Baselines follow the same encoding rule as `days`: they are id-keyed
-	// when a fileDict is present.  The plain path-keyed variant belongs to
-	// the never-released intermediate format, so it is not handled here.
-	if (
-		persisted?.day === today &&
-		persisted.baselines &&
-		hasFileDict(stats)
-	) {
+	if (persisted?.day === today && persisted.baselines && hasFileDict(stats)) {
 		return {
-			todayBaselines: decodeDayMap(
-				persisted.baselines,
-				buildIdToPath(stats.fileDict),
-			),
+			todayBaselines: decodeDayMap(persisted.baselines, buildIdToPath(stats.fileDict)),
 			todayBaselinesDay: today,
 		};
 	}
@@ -318,8 +252,7 @@ function decodeBaselines(
 		}
 		return {
 			todayBaselines,
-			todayBaselinesDay:
-				Object.keys(todayBaselines).length > 0 ? today : null,
+			todayBaselinesDay: Object.keys(todayBaselines).length > 0 ? today : null,
 		};
 	}
 
@@ -336,10 +269,29 @@ function resolveFileDict(stats: StatsInput, activeFiles: Set<string>): void {
 		setCachedFileDict(stats.fileDict);
 		return;
 	}
-	const freshDict: PersistedFileDict = {};
+	const dict: PersistedFileDict = {};
 	let id = 0;
-	for (const p of [...activeFiles].sort()) freshDict[p] = id++;
-	setCachedFileDict(freshDict);
+	for (const p of [...activeFiles].sort()) dict[p] = id++;
+	setCachedFileDict(dict);
+}
+
+function filterOrphanedFileDict(
+	fileDict: PersistedFileDict,
+	days: PersistedDaysMap,
+	baselines: PersistedBaselines | undefined,
+): PersistedFileDict {
+	const usedIds = new Set<string>();
+	for (const dayMap of Object.values(days)) {
+		for (const id of Object.keys(dayMap)) usedIds.add(id);
+	}
+	if (baselines?.baselines) {
+		for (const id of Object.keys(baselines.baselines)) usedIds.add(id);
+	}
+	const filtered: PersistedFileDict = {};
+	for (const [path, id] of Object.entries(fileDict)) {
+		if (usedIds.has(String(id))) filtered[path] = id;
+	}
+	return filtered;
 }
 
 /**
@@ -388,23 +340,10 @@ export function encodePersistedStats({
 	days: PersistedDaysMap;
 	todayBaselines?: PersistedBaselines;
 } {
-	// The dictionary is the single owner of path→ID assignments.  We reuse
-	// the cached dict (from the last decode/encode) for ID stability and
-	// mutate it in place to add newly-seen paths.  There is deliberately no
-	// copy — the returned `fileDict` is this same object, which is fine
-	// because it is only consumed for JSON serialization.
 	const fileDict: PersistedFileDict = cachedFileDict ?? (cachedFileDict = {});
 	let nextId = cachedNextId;
 
-	// Historical partition: cached, rebuilt only when its version key
-	// changes (see ensureHistoricalDays).
-	nextId = ensureHistoricalDays(
-		inputDays,
-		today,
-		historicalVersion,
-		fileDict,
-		nextId,
-	);
+	nextId = ensureHistoricalDays(inputDays, today, historicalVersion, fileDict, nextId);
 
 	// Today's live row: re-encoded fresh on every save.
 	const todayDay = inputDays[today] ?? {};
@@ -413,23 +352,11 @@ export function encodePersistedStats({
 		fileDict,
 		nextId,
 	);
-	nextId = todayNextId;
-	cachedNextId = nextId;
+	cachedNextId = todayNextId;
 
 	const days: PersistedDaysMap = {
 		...cachedEncHistoricalDays,
-		...(Object.keys(encodedTodayDay).length > 0
-			? { [today]: encodedTodayDay }
-			: {}),
-	};
-
-	const stats: {
-		fileDict: PersistedFileDict;
-		days: PersistedDaysMap;
-		todayBaselines?: PersistedBaselines;
-	} = {
-		days,
-		fileDict,
+		...(Object.keys(encodedTodayDay).length > 0 ? { [today]: encodedTodayDay } : {}),
 	};
 
 	const encodedBaselines = encodeBaselines(
@@ -439,9 +366,20 @@ export function encodePersistedStats({
 		todayBaselinesDay,
 		fileDict,
 	);
-	if (encodedBaselines) {
-		stats.todayBaselines = encodedBaselines;
-	}
 
-	return stats;
+	// Drop orphaned fileDict entries (left behind by file renames).
+	// Cache only grows (never shrinks), so when its size has increased
+	// since the last save, a rename likely happened and we filter.
+	// Cache stays as-is (IDs never decrease); only the persisted output
+	// is filtered to the paths still referenced by `days`.
+	const outputFileDict = Object.keys(fileDict).length > lastDictSize
+		? filterOrphanedFileDict(fileDict, days, encodedBaselines)
+		: fileDict;
+	lastDictSize = Object.keys(fileDict).length;
+
+	return {
+		fileDict: outputFileDict,
+		days,
+		...(encodedBaselines && { todayBaselines: encodedBaselines }),
+	};
 }

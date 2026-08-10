@@ -43,7 +43,6 @@ function renderReactCodeBlock(
 }
 
 ///////////// HEATMAP
-// Previously returned a new function for each code block, now directly processes the block through a unique function
 export function createHeatmapCodeBlock(
 	source: string,
 	el: HTMLElement,
@@ -57,7 +56,7 @@ export function createHeatmapCodeBlock(
 	renderReactCodeBlock(el, ctx, "heatmap-codeblock",
 		React.createElement(Heatmap, {
 			heatmapConfig: query?.options,
-			query: query?.filter,
+			fileFilter: query?.filter,
 			isCodeBlock: true,
 		})
 	);

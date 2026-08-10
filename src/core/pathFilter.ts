@@ -54,3 +54,14 @@ export function isPathTracked(filePath: string): boolean {
 	}
 	return false;
 }
+
+
+/**
+ * Drop the cached folder-lookup structures.  Called on plugin unload so
+ * stale references can't leak into the next load cycle (they would
+ * otherwise self-heal via the reference guard, but this keeps reset
+ * behaviour consistent with the other module-level caches).
+ */
+export function resetFolderCache(): void {
+	_folderCache = null;
+}
