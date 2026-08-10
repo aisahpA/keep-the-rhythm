@@ -90,7 +90,7 @@ export default class KeepTheRhythm extends Plugin {
 		});
 
 		this.addCommand({
-			id: "open-keep-the-rhythm2",
+			id: "open-sidebar",
 			name: "Open sidebar view",
 			callback: () => {
 				activateSidebarView();
@@ -98,8 +98,8 @@ export default class KeepTheRhythm extends Plugin {
 		});
 
 		this.addCommand({
-			id: "add-ktr-manual-entry",
-			name: "Add manual entry",
+			id: "upsert-entry",
+			name: "Add or Update entry",
 			callback: () => {
 				new ManualEntryModal(this.app).open();
 			},
