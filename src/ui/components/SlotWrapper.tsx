@@ -1,5 +1,4 @@
 import { Notice } from "obsidian";
-import { v4 as uuidv4 } from "uuid";
 import React from "react";
 import { CalculationType, SlotConfig, TargetCount } from "@/defs/types";
 import { Slot } from "./Slot";
@@ -26,7 +25,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
     const next = (effectiveSlots || []).map((slot) => {
       let uuid = uuidMapRef.current.get(slot.index);
       if (!uuid) {
-        uuid = uuidv4();
+        uuid = crypto.randomUUID();
         uuidMapRef.current.set(slot.index, uuid);
       }
       return { ...slot, uuid };
