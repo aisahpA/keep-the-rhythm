@@ -58,6 +58,8 @@ async function ensureActivityExists(file: TFile, liveContent?: string) {
 	try {
 		await flushPendingEditorChange();
 		await getExistingOrCreateNewEntry(file, store().today, liveContent);
+	} catch (error) {
+		console.error("Error creating or updating entry:", error);
 	} finally {
 		isUpdatingActivity = false;
 	}
@@ -178,9 +180,15 @@ async function runPendingEditorChange(): Promise<void> {
 			cur.settings?.enabledLanguages,
 		);
 
-		// Clamp to ≥ 0: undo/shrink below the baseline means this session
-		// contributed nothing new, never a negative "added".
-		cur.upsertAdded(cur.today, filePath, Math.max(0, newWordCount - baseline));
+		// Peak delta: stored value never decreases.  Writing 100 words gives
+		// 100 credit; then deleting 50 keeps it at 100 rather than dropping
+		// to 50.  Paste-then-trim, Ctrl+Z, and mid-edit restructuring
+		// similarly preserve credit already earned.  The stored value only
+		// moves forward when the document grows past its prior peak above
+		// baseline, matching the intuition "how much did I write today?".
+		const proposed = Math.max(0, newWordCount - baseline);
+		const currentAdded = cur.days[cur.today]?.[filePath] ?? 0;
+		cur.upsertAdded(cur.today, filePath, Math.max(currentAdded, proposed));
 	} catch (error) {
 		// The user may have closed the tab (and disposed its editor) since
 		// this sample was armed; swallowing the failure keeps one dead
