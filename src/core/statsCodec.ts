@@ -31,8 +31,9 @@ import {
 // ─── File dictionary cache ───
 let cachedFileDict: PersistedFileDict | null = null;
 let cachedNextId = 0;
+let lastDictSize = 0;
 
-export function setCachedFileDict(dict: PersistedFileDict | null): void {
+function setCachedFileDict(dict: PersistedFileDict | null): void {
 	cachedFileDict = dict ? { ...dict } : null;
 	cachedNextId = dict
 		? Object.values(dict).reduce((m, v) => Math.max(m, v + 1), 0)
@@ -54,6 +55,7 @@ let cachedEncHistoricalDays: PersistedDaysMap = {};
 export function resetStatsCodecCache(): void {
 	cachedFileDict = null;
 	cachedNextId = 0;
+	lastDictSize = 0;
 	cachedEncToday = "";
 	cachedEncHistVer = -1;
 	cachedEncHistoricalDays = {};
@@ -273,6 +275,25 @@ function resolveFileDict(stats: StatsInput, activeFiles: Set<string>): void {
 	setCachedFileDict(dict);
 }
 
+function filterOrphanedFileDict(
+	fileDict: PersistedFileDict,
+	days: PersistedDaysMap,
+	baselines: PersistedBaselines | undefined,
+): PersistedFileDict {
+	const usedIds = new Set<string>();
+	for (const dayMap of Object.values(days)) {
+		for (const id of Object.keys(dayMap)) usedIds.add(id);
+	}
+	if (baselines?.baselines) {
+		for (const id of Object.keys(baselines.baselines)) usedIds.add(id);
+	}
+	const filtered: PersistedFileDict = {};
+	for (const [path, id] of Object.entries(fileDict)) {
+		if (usedIds.has(String(id))) filtered[path] = id;
+	}
+	return filtered;
+}
+
 /**
  * Decode the persisted `stats` section into the store's single `days`
  * map plus the current-day baselines.  Legacy rows for today also seed
@@ -352,6 +373,20 @@ export function encodePersistedStats({
 		fileDict,
 	);
 	if (encodedBaselines) result.todayBaselines = encodedBaselines;
+
+	// Drop orphaned fileDict entries (left behind by file renames).
+	// Cache only grows (never shrinks), so when its size has increased
+	// since the last save, a rename likely happened and we filter.
+	// Cache stays as-is (IDs never decrease); only the persisted output
+	// is filtered to the paths still referenced by `days`.
+	if (Object.keys(fileDict).length > lastDictSize) {
+		result.fileDict = filterOrphanedFileDict(
+			fileDict,
+			result.days,
+			encodedBaselines,
+		);
+	}
+	lastDictSize = Object.keys(fileDict).length;
 
 	return result;
 }
