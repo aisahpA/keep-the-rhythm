@@ -19,6 +19,7 @@ import { ActivityRecord } from "@/defs/types";
 interface EntriesProps {
 	date?: string;
 	filters?: EntryFilter[];
+	onDateChange?: (date: string) => void;
 }
 
 interface EntryRowProps {
@@ -262,7 +263,7 @@ const QuickAddRow = React.memo(function QuickAddRow({
 	);
 });
 
-export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
+export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps) => {
 	// Subscribe to today so the header label + default date stay live when
 	// the calendar rolls over.
 	const today = useStore((s) => s.today);
@@ -274,6 +275,14 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 	useEffect(() => {
 		if (dateProp) setSelectedDate(dateProp);
 	}, [dateProp]);
+
+	// Report internal date changes (date picker, "Back to today", rollover)
+	// so the sidebar heatmap highlight follows.  The parent setting the same
+	// value bails out, so this cannot loop.
+	useEffect(() => {
+		onDateChange?.(selectedDate);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedDate]);
 
 	// Midnight rollover: only follow the calendar when the user is still on
 	// the previous "today".  A deliberately picked past date is preserved.

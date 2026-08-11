@@ -16,12 +16,16 @@ interface HeatmapProps {
 	heatmapConfig: HeatmapConfig;
 	fileFilter?: any;
 	isCodeBlock?: boolean;
+	onCellClick?: (date: string) => void;
+	selectedDate?: string;
 }
 
 export const Heatmap = ({
 	heatmapConfig,
 	fileFilter,
 	isCodeBlock,
+	onCellClick,
+	selectedDate,
 }: HeatmapProps) => {
 	// ── Destructure config ──────────────────────────────────────
 	const weeksToShow = heatmapConfig.numberOfWeeks || 52;
@@ -143,11 +147,13 @@ export const Heatmap = ({
 					intensity={intensityResolver(count)}
 					mode={intensityMode}
 					isToday={false}
+					onCellClick={onCellClick}
+					selected={date === selectedDate}
 				/>,
 			);
 		}
 		return { before, after, hasToday };
-	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today]);
+	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate]);
 
 	const todayCell = useMemo(() => {
 		if (!hasToday) return null;
@@ -160,9 +166,11 @@ export const Heatmap = ({
 				intensity={intensityResolver(todayCellData)}
 				mode={intensityMode}
 				isToday
+				onCellClick={onCellClick}
+				selected={today === selectedDate}
 			/>
 		);
-	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode]);
+	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate]);
 
 	const wrapperClasses = useMemo(
 		() =>

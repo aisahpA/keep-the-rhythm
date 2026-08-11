@@ -16,6 +16,12 @@ interface HeatmapCellProps {
 	mode: HeatmapColorModes;
 	squared?: boolean;
 	isToday: boolean;
+	/**
+	 * When provided, clicking the cell reports the date instead of opening
+	 * the day's daily note (used by the sidebar to drive the Entries list).
+	 */
+	onCellClick?: (date: string) => void;
+	selected?: boolean;
 }
 
 /**
@@ -32,8 +38,15 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 	mode,
 	squared,
 	isToday,
+	onCellClick,
+	selected,
 }: HeatmapCellProps) {
 	const handleClick = async (_event: React.MouseEvent<HTMLDivElement>) => {
+		if (onCellClick) {
+			onCellClick(date);
+			return;
+		}
+
 		const app = getPlugin().app;
 		if (!useStore.getState().settings.heatmapNavigation) return;
 
@@ -87,9 +100,11 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 	}
 	const isTodayClass = isToday ? "heatmap-square-today" : "";
 
+	const isSelectedClass = selected ? "heatmap-square-selected" : "";
+
 	const isSquaredClass = squared ? "cell-squared" : "cell-rounded";
 
-	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${intensityClass}`;
+	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${isSelectedClass} ${intensityClass}`;
 
 	const style = {
 		"--intensity": `${intensity}%`,
