@@ -38,17 +38,18 @@ function setCachedFileDict(dict: PersistedFileDict): void {
 	cachedNextId = Object.values(dict).reduce((m, v) => Math.max(m, v + 1), 0);
 }
 
-// ─── Encoded historical partition cache ───
-// Keystrokes only change today's row, so we cache the encoded historical
-// partition keyed by (today, historicalVersion) and skip re-scanning it.
+// ─── Encoded days cache ───
+// Keystrokes only change today's row, so we cache the fully-encoded `days`
+// snapshot keyed by (today, historicalVersion).  On cache hit we skip
+// re-scanning the history and only update `today` in place.  On cache miss
+// we rebuild the entire encoded snapshot.
 let cachedEncToday = "";
 let cachedEncHistVer = -1;
-let cachedEncHistoricalDays: PersistedDaysMap = {};
+let cachedEncodedDays: PersistedDaysMap = {};
 
 /**
- * Reset all module-level codec caches (file dict + encoded historical
- * partition).  Called on plugin unload so stale state can't leak into the
- * next load cycle.
+ * Reset all module-level codec caches (file dict + encoded days snapshot).
+ * Called on plugin unload so stale state can't leak into the next load cycle.
  */
 export function resetStatsCodecCache(): void {
 	cachedFileDict = {};
@@ -56,7 +57,7 @@ export function resetStatsCodecCache(): void {
 	lastDictSize = 0;
 	cachedEncToday = "";
 	cachedEncHistVer = -1;
-	cachedEncHistoricalDays = {};
+	cachedEncodedDays = {};
 }
 
 export interface DecodedActivities {
@@ -132,34 +133,31 @@ function decodeDayMap(
 
 /**
  * Prune zero-added rows out of a single day map and encode it, assigning
- * a new auto-incremented ID to any path not yet in the dictionary.
- * Returns the encoded map (empty when the day had no positive rows) plus
- * the running nextId.
+ * a new auto-incremented ID to any path not yet in the dictionary (via
+ * module-level `cachedNextId`).
+ * Returns the encoded map (empty when the day had no positive rows).
  */
 function encodeDay(
 	day: DayActivityMap,
-	nextId: number,
-): { encoded: Record<string, number>; nextId: number } {
+): Record<string, number> {
 	const kept: DayActivityMap = {};
 	for (const [filePath, added] of Object.entries(day)) {
 		if (added > 0) {
 			kept[filePath] = added;
-			if (!(filePath in (cachedFileDict ?? {}))) {
-				cachedFileDict ??= {};
-				cachedFileDict[filePath] = nextId++;
+			if (!(filePath in cachedFileDict)) {
+				cachedFileDict[filePath] = cachedNextId++;
 			}
 		}
 	}
-	return kept
-		? { encoded: encodeDayMap(kept), nextId }
-		: { encoded: {}, nextId };
+	return kept ? encodeDayMap(kept) : {};
 }
 
+// filter out baselines for files in todayDay that have no words added
 function encodeBaselines(
-	todayBaselines: DayActivityMap,
-	todayDay: DayActivityMap,
-	today: string,
 	todayBaselinesDay: string | null,
+	todayBaselines: DayActivityMap,
+	today: string,
+	todayDay: DayActivityMap,
 ): PersistedBaselines | undefined {
 	if (todayBaselinesDay !== today) return undefined;
 	const kept: DayActivityMap = {};
@@ -171,35 +169,32 @@ function encodeBaselines(
 }
 
 /**
- * Ensure the cached encoded historical partition (all dates except today)
- * is up to date with the current (today, historicalVersion) key.  The
- * historical partition is stable across keystrokes — it only changes when
- * today rolls over, historical data is edited, or an external sync
- * replaces the data — so on a cache hit this is a no-op and saves re-
- * scanning the whole history on every save.
+ * Ensure the cached encoded days snapshot is up to date with the current
+ * (today, historicalVersion) key.  On cache hit, the snapshot is already
+ * current — return true and do nothing.  On cache miss, rebuild the entire
+ * encoded snapshot (all dates including today) and return false.
  *
- * Returns the running nextId (a cache (re)build may have assigned new IDs).
+ * The snapshot is stable across keystrokes — it only changes when today
+ * rolls over, historical data is edited, or an external sync replaces
+ * the data.
  */
-function ensureHistoricalDays(
+function ensureEncodedDays(
 	inputDays: DaysMap,
 	today: string,
 	historicalVersion: number,
-	nextId: number,
-): number {
+): boolean {
 	if (today === cachedEncToday && historicalVersion === cachedEncHistVer)
-		return nextId;
+		return true;
 
 	const encoded: PersistedDaysMap = {};
 	for (const [date, day] of Object.entries(inputDays)) {
-		if (date === today) continue;
-		const { encoded: encDay, nextId: nid } = encodeDay(day, nextId);
-		nextId = nid;
+		const encDay = encodeDay(day);
 		if (Object.keys(encDay).length > 0) encoded[date] = encDay;
 	}
-	cachedEncHistoricalDays = encoded;
+	cachedEncodedDays = encoded;
 	cachedEncToday = today;
 	cachedEncHistVer = historicalVersion;
-	return nextId;
+	return false;
 }
 
 /**
@@ -315,13 +310,13 @@ export function decodeActivities(
  * `todayBaselines` is only written when it is still valid (recorded
  * for the current day) and non-empty.
  *
- * The historical partition is cached across saves (see
- * `ensureHistoricalDays`); only today's live row is re-encoded on each
- * save, so per-keystroke persistence is O(files today).
+ * The encoded days snapshot is cached across saves (see `ensureEncodedDays`).
+ * On cache hit, only today's row is updated in place — O(files today).
+ * On cache miss, the full snapshot is rebuilt from scratch.
  */
 export function encodePersistedStats({
 	today,
-	days: inputDays,
+	days,
 	todayBaselines,
 	todayBaselinesDay,
 	historicalVersion,
@@ -336,44 +331,35 @@ export function encodePersistedStats({
 	days: PersistedDaysMap;
 	todayBaselines?: PersistedBaselines;
 } {
-	let nextId = cachedNextId;
+	const cacheHit = ensureEncodedDays(days, today, historicalVersion);
 
-	nextId = ensureHistoricalDays(inputDays, today, historicalVersion, nextId);
-
-	// Today's live row: re-encoded fresh on every save.
-	const todayDay = inputDays[today] ?? {};
-	const { encoded: encodedTodayDay, nextId: todayNextId } = encodeDay(
-		todayDay,
-		nextId,
-	);
-	cachedNextId = todayNextId;
-
-	const days: PersistedDaysMap = {
-		...cachedEncHistoricalDays,
-		...(Object.keys(encodedTodayDay).length > 0 ? { [today]: encodedTodayDay } : {}),
-	};
+	if (cacheHit) {
+		// Cache hit: snapshot is current — only update today in place.
+		const todayDay = days[today] ?? {};
+		const encodedTodayDay = encodeDay(todayDay);
+		if (Object.keys(encodedTodayDay).length > 0) {
+			cachedEncodedDays[today] = encodedTodayDay;
+		} else {
+			delete cachedEncodedDays[today];
+		}
+	}
 
 	const encodedBaselines = encodeBaselines(
-		todayBaselines,
-		todayDay,
-		today,
 		todayBaselinesDay,
+		todayBaselines,
+		today,
+		days[today] ?? {},
 	);
 
-	// Drop orphaned fileDict entries (left behind by file renames).
-	// Cache only grows (never shrinks), but !== is safer than > because
-	// it catches both directions without relying on the monotonicity
-	// assumption holding in practice.
-	// Cache stays as-is (IDs never decrease); only the persisted output
-	// is filtered to the paths still referenced by `days`.
-	const outputFileDict = Object.keys(cachedFileDict).length !== lastDictSize
-		? filterOrphanedFileDict(days, encodedBaselines)
-		: cachedFileDict;
+	// Drop orphaned fileDict entries (left behind by file renames or deletions).
+	if (Object.keys(cachedFileDict).length !== lastDictSize) {
+		cachedFileDict = filterOrphanedFileDict(cachedEncodedDays, encodedBaselines);
+	}
 	lastDictSize = Object.keys(cachedFileDict).length;
 
 	return {
-		fileDict: outputFileDict,
-		days,
+		fileDict: cachedFileDict,
+		days: cachedEncodedDays,
 		...(encodedBaselines && { todayBaselines: encodedBaselines }),
 	};
 }
