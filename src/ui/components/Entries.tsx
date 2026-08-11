@@ -1,4 +1,5 @@
 import {
+	addOrUpdateActivity,
 	deleteActivityFromDate,
 	getActivityRowsByDate,
 	selectHistoricalVersion,
@@ -11,7 +12,7 @@ import { getFileNameWithoutExtension } from "@/utils/utils";
 import { useStore } from "@/core/store";
 import { getPlugin } from "@/core/pluginRegistry";
 import { FileView, Notice, setIcon } from "obsidian";
-import { ManualEntryModal } from "../components/ManualEntry";
+import { FileSuggest } from "./FileSuggest";
 import { EntryFilter } from "@/core/codeBlocks";
 import { ActivityRecord } from "@/defs/types";
 
@@ -24,25 +25,74 @@ interface EntryRowProps {
 	entry: ActivityRecord;
 	onOpenFile: (filePath: string) => void;
 	onDelete: (filePath: string) => void;
+	onUpdate: (filePath: string, value: number) => void;
 }
 
 /**
  * Memoized row: only re-renders when the entry itself changes (filePath or
  * wordsAdded) or when handlers change.  With React.memo the other rows skip
  * reconciliation entirely on each keystroke, instead of N rows each getting
- * a fresh prop bundle.
+ * a fresh prop bundle.  Editing state lives inside the row so typing in the
+ * number input never re-renders the parent list either.
  */
 const EntryRow = React.memo(function EntryRow({
 	entry,
 	onOpenFile,
 	onDelete,
+	onUpdate,
 }: EntryRowProps) {
 	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+	const editButtonRef = useRef<HTMLButtonElement | null>(null);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+
+	const [editing, setEditing] = React.useState(false);
+	const [editValue, setEditValue] = React.useState("");
+	// Guards the onBlur commit from double-firing after Enter/Escape closed
+	// the editor (blur can follow the removal of the focused element).
+	const editingClosedRef = useRef(false);
 
 	useEffect(() => {
 		const el = deleteButtonRef.current;
 		if (el) setIcon(el, "trash-2");
 	}, []);
+
+	useEffect(() => {
+		const el = editButtonRef.current;
+		if (el) setIcon(el, "pencil");
+	}, []);
+
+	useEffect(() => {
+		if (editing) {
+			const el = inputRef.current;
+			if (el) {
+				el.focus();
+				el.select();
+			}
+		}
+	}, [editing]);
+
+	const startEditing = useCallback(() => {
+		editingClosedRef.current = false;
+		setEditValue(String(entry.wordsAdded));
+		setEditing(true);
+	}, [entry.wordsAdded]);
+
+	const closeEditing = useCallback(
+		(commit: boolean) => {
+			if (editingClosedRef.current) return;
+			editingClosedRef.current = true;
+			if (commit) {
+				// An emptied input is treated as cancel, not as 0 (delete).
+				const value = Number(editValue);
+				if (editValue.trim() !== "" && Number.isFinite(value) && value >= 0) {
+					if (value === 0) onDelete(entry.filePath);
+					else onUpdate(entry.filePath, value);
+				}
+			}
+			setEditing(false);
+		},
+		[editValue, onDelete, onUpdate, entry.filePath],
+	);
 
 	const delta = entry.wordsAdded;
 	const prefix = delta > 0 ? "+" : "";
@@ -56,19 +106,158 @@ const EntryRow = React.memo(function EntryRow({
 				{getFileNameWithoutExtension(entry.filePath)}
 			</span>
 			<div className="todayEntries__list-item-right">
-				<span className="todayEntries__word-count">
-					{prefix}
-					{delta.toLocaleString()}
-				</span>
-				<span className="todayEntries_list-item-unit">{" words"}</span>
+				{editing ? (
+					<input
+						ref={inputRef}
+						className="todayEntries__edit-input"
+						type="number"
+						min="0"
+						value={editValue}
+						onChange={(e) => setEditValue(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") closeEditing(true);
+							else if (e.key === "Escape") closeEditing(false);
+						}}
+						onBlur={() => closeEditing(true)}
+					/>
+				) : (
+					<>
+						<span
+							className="todayEntries__word-count"
+							onDoubleClick={startEditing}
+						>
+							{prefix}
+							{delta.toLocaleString()}
+						</span>
+						<span className="todayEntries_list-item-unit">
+							{" words"}
+						</span>
+					</>
+				)}
+				<Tooltip content="Edit entry">
+					<button
+						ref={editButtonRef}
+						className="todayEntries__edit-button"
+						onClick={startEditing}
+					/>
+				</Tooltip>
 				<Tooltip content="Delete entry">
 					<button
 						ref={deleteButtonRef}
 						className="todayEntries__delete-button"
-						onMouseDown={() => onDelete(entry.filePath)}
+						onClick={() => onDelete(entry.filePath)}
 					/>
 				</Tooltip>
 			</div>
+		</div>
+	);
+});
+
+interface QuickAddRowProps {
+	date: string;
+	onClose: () => void;
+}
+
+/**
+ * Inline quick-add row at the bottom of the entries list.  The date is
+ * snapshotted when the row opens (the viewed date), so backfilling a
+ * historical day works by picking the date in the header first.  After a
+ * save the fields clear but the row stays open for consecutive entries.
+ */
+const QuickAddRow = React.memo(function QuickAddRow({
+	date,
+	onClose,
+}: QuickAddRowProps) {
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const wordsInputRef = useRef<HTMLInputElement | null>(null);
+
+	const setSaveIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "check");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
+
+	const setCancelIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "x");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
+
+	useEffect(() => {
+		const el = fileInputRef.current;
+		if (el) new FileSuggest(getPlugin().app, el);
+		// Focus the file input on open so a new entry can be typed right away.
+		el?.focus();
+	}, []);
+
+	const handleSave = useCallback(async () => {
+		const filePath = fileInputRef.current?.value.trim() ?? "";
+		if (!filePath) {
+			new Notice("Please pick a file");
+			return;
+		}
+		const app = getPlugin().app;
+		const file = app.vault.getFileByPath(filePath);
+		if (!file) {
+			new Notice(`File not found: ${filePath}`);
+			return;
+		}
+		const value = Number(wordsInputRef.current?.value);
+		if (!Number.isFinite(value) || value <= 0) {
+			new Notice("Please enter a valid word count");
+			return;
+		}
+		await addOrUpdateActivity(file, date, value);
+		// Clear fields and keep the row open for consecutive entries.
+		if (fileInputRef.current) fileInputRef.current.value = "";
+		if (wordsInputRef.current) wordsInputRef.current.value = "";
+		wordsInputRef.current?.focus();
+	}, [date]);
+
+	const handleWordsKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				void handleSave();
+			} else if (e.key === "Escape") {
+				onClose();
+			}
+		},
+		[handleSave, onClose],
+	);
+
+	return (
+		<div className="todayEntries__quick-add">
+			<input
+				ref={fileInputRef}
+				className="todayEntries__quick-add-file"
+				type="text"
+				placeholder="File path…"
+			/>
+			<input
+				ref={wordsInputRef}
+				className="todayEntries__quick-add-words"
+				type="number"
+				min="0"
+				placeholder="Words"
+				onKeyDown={handleWordsKeyDown}
+			/>
+			<Tooltip content="Save entry">
+				<button
+					ref={setSaveIcon}
+					className="todayEntries__quick-add-save"
+					onClick={() => void handleSave()}
+				/>
+			</Tooltip>
+			<Tooltip content="Cancel">
+				<button
+					ref={setCancelIcon}
+					className="todayEntries__quick-add-cancel"
+					onClick={onClose}
+				/>
+			</Tooltip>
 		</div>
 	);
 });
@@ -138,9 +327,19 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 		[rawEntries, matchesFilters],
 	);
 
-	const addManualEntry = useCallback(() => {
-		new ManualEntryModal(getPlugin().app).open();
-	}, []);
+	// Quick-add row state.  The date is snapshotted when the row opens so
+	// changing the header date afterwards doesn't silently redirect saves.
+	const [quickAddOpen, setQuickAddOpen] = React.useState(false);
+	const [quickAddDate, setQuickAddDate] = React.useState(today);
+
+	const toggleQuickAdd = useCallback(() => {
+		if (quickAddOpen) {
+			setQuickAddOpen(false);
+		} else {
+			setQuickAddDate(date);
+			setQuickAddOpen(true);
+		}
+	}, [quickAddOpen, date]);
 
 	const setManualEntryIcon = useCallback((el: HTMLButtonElement | null) => {
 		if (el && !el.dataset.iconSet) {
@@ -206,6 +405,20 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 		[date],
 	);
 
+	// Commit an in-place edit: 0 deletes, otherwise upserts the new value.
+	const handleUpdate = useCallback(
+		(filePath: string, value: number) => {
+			const app = getPlugin().app;
+			const file = app.vault.getFileByPath(filePath);
+			if (!file) {
+				new Notice("File not found!");
+				return;
+			}
+			void addOrUpdateActivity(file, date, value);
+		},
+		[date],
+	);
+
 	return (
 		<div className="todayEntries__section">
 			<RadixTooltip.Provider delayDuration={200}>
@@ -237,11 +450,11 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 							/>
 						</Tooltip>
 					)}
-					<Tooltip content="Add or Update Entry">
+					<Tooltip content="Add entry">
 						<button
 							className="todayEntries__manual-entry"
 							ref={setManualEntryIcon}
-							onMouseDown={addManualEntry}
+							onMouseDown={toggleQuickAdd}
 						/>
 					</Tooltip>
 				</div>
@@ -252,10 +465,25 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 							entry={entry}
 							onOpenFile={handleOpenFile}
 							onDelete={handleDelete}
+							onUpdate={handleUpdate}
 						/>
 					))
 				) : (
-					<p className="empty-data">No files edited today</p>
+					<div className="empty-data">
+						<span>No files edited today</span>
+						<button
+							className="todayEntries__empty-add"
+							onClick={toggleQuickAdd}
+						>
+							Add entry
+						</button>
+					</div>
+				)}
+				{quickAddOpen && (
+					<QuickAddRow
+						date={quickAddDate}
+						onClose={() => setQuickAddOpen(false)}
+					/>
 				)}
 			</RadixTooltip.Provider>
 		</div>

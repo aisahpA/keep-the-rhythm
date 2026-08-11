@@ -16,7 +16,7 @@ import {
 import { getDailySummaryMap, getStreak } from "@/utils/dailySummaryCache";
 import { getLanguageBasedWordCount } from "@/core/wordCounting";
 import { getPlugin } from "@/core/pluginRegistry";
-import { TFile } from "obsidian";
+import { MarkdownView, TFile } from "obsidian";
 
 /** Read the file's current word count (cachedRead with read fallback). */
 export async function getWordCountForFile(file: TFile): Promise<number> {
@@ -29,6 +29,29 @@ export async function getWordCountForFile(file: TFile): Promise<number> {
 		content,
 		useStore.getState().settings.enabledLanguages,
 	);
+}
+
+/**
+ * Word count preferring the live editor buffer over disk: rewriting a
+ * today baseline would otherwise race unsaved edits (the change event has
+ * already fired), baking a permanent offset into the day's delta.  Falls
+ * back to the cached disk read when the file isn't open anywhere.
+ */
+async function getCurrentWordCountLive(file: TFile): Promise<number> {
+	const app = getPlugin().app;
+	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
+		if (
+			leaf.view instanceof MarkdownView &&
+			leaf.view.file?.path === file.path &&
+			leaf.view.editor
+		) {
+			return getLanguageBasedWordCount(
+				leaf.view.editor.getValue(),
+				useStore.getState().settings.enabledLanguages,
+			);
+		}
+	}
+	return getWordCountForFile(file);
 }
 
 /** Version selectors for React components to subscribe to. */
@@ -239,7 +262,7 @@ export function getCurrentCount(
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Write helpers — thin wrappers over store actions so existing call sites
- * (Entries.tsx, ManualEntry.tsx) don't need to know about the store
+ * (Entries.tsx) don't need to know about the store
  * internals.  All persist signaling is handled by the store actions.
  * ────────────────────────────────────────────────────────────────────── */
 
@@ -289,9 +312,11 @@ export const deleteActivityFromDate = (
 
 /**
  * Add or update the activity row for (date, filePath), storing `wordAdded`
- * as the day's total for that file.  When no row exists yet for today the
- * baseline is reconstructed (`count - added`) so live editor deltas keep
- * working; historical dates need no baseline at all.
+ * as the day's total for that file.  For today the baseline is always
+ * recomputed (`currentCount - added`) so the manual value acts as the
+ * anchor for live tracking — subsequent typing accumulates on top of it
+ * instead of the live sampler silently overriding a lower manual value.
+ * Historical dates need no baseline at all.
  */
 export const addOrUpdateActivity = async (
 	file: TFile,
@@ -299,10 +324,9 @@ export const addOrUpdateActivity = async (
 	wordAdded: number,
 ): Promise<void> => {
 	const cur = useStore.getState();
-	const entry = getActivityByDateAndFile(date, file.path);
 
-	if (!entry && date === cur.today) {
-		const currentWordCount = await getWordCountForFile(file);
+	if (date === cur.today) {
+		const currentWordCount = await getCurrentWordCountLive(file);
 		cur.setBaseline(file.path, Math.max(0, currentWordCount - wordAdded));
 	}
 

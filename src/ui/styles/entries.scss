@@ -24,7 +24,8 @@
 }
 
 .todayEntires__list-item:hover {
-  button.todayEntries__delete-button {
+  button.todayEntries__delete-button,
+  button.todayEntries__edit-button {
     margin-left: 6px;
     max-width: 18px;
     opacity: 1;
@@ -32,6 +33,7 @@
 }
 
 button.todayEntries__delete-button,
+button.todayEntries__edit-button,
 button.todayEntries__entry-unit,
 button.todayEntries__manual-entry,
 button.todayEntries__date-button,
@@ -53,6 +55,7 @@ button.todayEntries__today-button {
 }
 
 button.todayEntries__entry-unit,
+button.todayEntries__edit-button,
 button.todayEntries__manual-entry,
 button.todayEntries__date-button,
 button.todayEntries__today-button {
@@ -73,6 +76,17 @@ button.todayEntries__today-button {
   color: var(--text-faint);
   margin-top: 8px;
   margin-bottom: 8px;
+}
+
+.todayEntries__empty-add {
+  display: block;
+  margin: 4px auto 0;
+  color: var(--text-accent);
+  border: none;
+  box-shadow: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: var(--font-smallest);
 }
 
 .todayEntries__section {
@@ -119,6 +133,47 @@ button.todayEntries__today-button {
   color: var(--text-muted);
   padding-left: 3px;
   letter-spacing: -0.25px;
+}
+
+.todayEntries__edit-input {
+  width: 70px;
+  height: 20px;
+  padding: 0 4px;
+  text-align: right;
+  font-size: var(--font-ui-small);
+}
+
+.todayEntries__quick-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--background-modifier-border);
+
+  .todayEntries__quick-add-file {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-ui-small);
+  }
+
+  .todayEntries__quick-add-words {
+    width: 80px;
+    font-size: var(--font-ui-small);
+  }
+}
+
+button.todayEntries__quick-add-save,
+button.todayEntries__quick-add-cancel {
+  color: var(--text-muted);
+  border: none;
+  box-shadow: none;
+  background-color: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+button.todayEntries__quick-add-save {
+  color: var(--text-accent);
 }
 
 // manual entry modal

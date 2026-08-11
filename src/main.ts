@@ -1,4 +1,3 @@
-import { ManualEntryModal } from "./ui/components/ManualEntry";
 import { Plugin, TFile, TAbstractFile, moment as _moment } from "obsidian";
 
 import { setPlugin } from "@/core/pluginRegistry";
@@ -99,14 +98,6 @@ export default class KeepTheRhythm extends Plugin {
 			name: "Open sidebar view",
 			callback: () => {
 				activateSidebarView();
-			},
-		});
-
-		this.addCommand({
-			id: "upsert-entry",
-			name: "Add or Update entry",
-			callback: () => {
-				new ManualEntryModal(this.app).open();
 			},
 		});
 	}
