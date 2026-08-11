@@ -91,7 +91,6 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 		mode == HeatmapColorModes.SOLID ||
 		intensity == 0
 	) {
-		//  TODO: fix this, is not working :(
 		intensityClass = "level-" + intensity + " ";
 	} else if (mode == HeatmapColorModes.GRADUAL) {
 		intensityClass = "proportional-intensity";
