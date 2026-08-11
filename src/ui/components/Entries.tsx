@@ -77,7 +77,27 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 	// Subscribe to today so the header label + default date stay live when
 	// the calendar rolls over.
 	const today = useStore((s) => s.today);
-	const date = dateProp ?? today;
+	const [selectedDate, setSelectedDate] = React.useState<string>(
+		() => dateProp ?? today,
+	);
+
+	// Sync internal state when the code-block `date` prop changes (re-render).
+	useEffect(() => {
+		if (dateProp) setSelectedDate(dateProp);
+	}, [dateProp]);
+
+	// Midnight rollover: only follow the calendar when the user is still on
+	// the previous "today".  A deliberately picked past date is preserved.
+	const prevTodayRef = useRef(today);
+	useEffect(() => {
+		const prev = prevTodayRef.current;
+		prevTodayRef.current = today;
+		if (prev !== today && selectedDate === prev) {
+			setSelectedDate(today);
+		}
+	}, [today, selectedDate]);
+
+	const date = selectedDate;
 	const historicalVersion = useStore(selectHistoricalVersion);
 	const todayVersion = useStore(selectTodayVersion);
 
@@ -129,6 +149,32 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 		}
 	}, []);
 
+	const setDateButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "calendar");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
+
+	const setResetButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "rotate-ccw");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
+
+	// Native date-picker hidden input, same pattern as ManualEntry.tsx.
+	const dateInputRef = useRef<HTMLInputElement | null>(null);
+
+	const handleDatePicked = useCallback((value: string) => {
+		const m = window.moment(value, "YYYY-MM-DD");
+		if (m.isValid()) setSelectedDate(m.format("YYYY-MM-DD"));
+	}, []);
+
+	const handleOpenPicker = useCallback(() => {
+		dateInputRef.current?.showPicker();
+	}, []);
+
 	const handleOpenFile = useCallback(async (filePath: string) => {
 		const app = getPlugin().app;
 		const file = app.vault.getFileByPath(filePath);
@@ -167,6 +213,30 @@ export const Entries = ({ date: dateProp, filters }: EntriesProps) => {
 					<div className="todayEntries__section-title">
 						{date == today ? "ENTRIES TODAY" : `ENTRIES (${date})`}
 					</div>
+					<Tooltip content="Pick a date">
+						<button
+							className="todayEntries__date-button"
+							ref={setDateButtonIcon}
+							onMouseDown={handleOpenPicker}
+						/>
+					</Tooltip>
+					<input
+						ref={dateInputRef}
+						type="date"
+						className="ktr-hidden-date-input"
+						max={today}
+						value={date}
+						onChange={(e) => handleDatePicked(e.target.value)}
+					/>
+					{date !== today && (
+						<Tooltip content="Back to today">
+							<button
+								className="todayEntries__today-button"
+								ref={setResetButtonIcon}
+								onMouseDown={() => setSelectedDate(today)}
+							/>
+						</Tooltip>
+					)}
 					<Tooltip content="Add or Update Entry">
 						<button
 							className="todayEntries__manual-entry"

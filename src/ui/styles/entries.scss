@@ -14,7 +14,9 @@
 
   &:hover {
     button.todayEntries__entry-unit,
-    button.todayEntries__manual-entry {
+    button.todayEntries__manual-entry,
+    button.todayEntries__date-button,
+    button.todayEntries__today-button {
       max-width: 18px;
       opacity: 1;
     }
@@ -31,7 +33,9 @@
 
 button.todayEntries__delete-button,
 button.todayEntries__entry-unit,
-button.todayEntries__manual-entry {
+button.todayEntries__manual-entry,
+button.todayEntries__date-button,
+button.todayEntries__today-button {
   transition:
     margin-left 200ms ease,
     max-width 200ms ease,
@@ -49,8 +53,14 @@ button.todayEntries__manual-entry {
 }
 
 button.todayEntries__entry-unit,
-button.todayEntries__manual-entry {
+button.todayEntries__manual-entry,
+button.todayEntries__date-button,
+button.todayEntries__today-button {
   color: var(--text-muted);
+}
+
+button.todayEntries__today-button {
+  color: var(--text-accent);
 }
 .todayEntries__list-item-right {
   display: flex;
