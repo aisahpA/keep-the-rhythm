@@ -168,6 +168,10 @@ function buildOptionsConfig(optionsText: string): HeatmapConfig {
 				break;
 			case "WEEKS":
 				config.numberOfWeeks = Number(details) || 20;
+				break;
+			case "CELL_SIZE":
+				config.cellSize = Number(details) || 10;
+				break;
 		}
 	}
 

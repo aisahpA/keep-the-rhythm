@@ -121,6 +121,7 @@ STOPS 100, 500, 1000                       // changes the keypoints used for cal
 SQUARED_CELLS                              // changes the cell styling for a more squared look
 ROUNDED_CELLS                              // changes the cell styling for a rounded look
 WEEKS 24                                   // changes how many weeks are displayed (can affect performance)
+CELL_SIZE 14                               // changes the size of each cell in pixels
 ```
 ````
 
@@ -135,6 +136,7 @@ Available Options:
 - `COLORING_MODE`: Set to `liquid`, `stops`, `solid`, or `gradual`
 - `STOPS`: Define threshold values (e.g., `100, 500, 1000`)
 - `SQUARED_CELLS` or `ROUNDED_CELLS`: Control cell appearance
+- `CELL_SIZE`: Cell size in pixels (e.g., `14` for larger cells)
 
 #### Data Slots (`ktr-slots`)
 

@@ -15,6 +15,7 @@ interface HeatmapCellProps {
 	date: string;
 	mode: HeatmapColorModes;
 	squared?: boolean;
+	cellSize?: number;
 	isToday: boolean;
 	/**
 	 * When provided, clicking the cell reports the date instead of opening
@@ -37,6 +38,7 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 	date,
 	mode,
 	squared,
+	cellSize,
 	isToday,
 	onCellClick,
 	selected,
@@ -107,6 +109,8 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 
 	const style = {
 		"--intensity": `${intensity}%`,
+		width: cellSize,
+		height: cellSize,
 	} as React.CSSProperties & Record<string, string | number>;
 
 	const tooltipContent = useMemo(

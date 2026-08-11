@@ -95,6 +95,13 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
           title: "Default number of weeks displayed",
         },
         {
+          key: "heatmapConfig.cellSize",
+          type: "number",
+          title: "Cell size (px)",
+          description: "Size of each heatmap cell in pixels.",
+          placeholder: "10",
+        },
+        {
           key: "heatmapConfig.intensityMode",
           type: "custom",
           title: "Coloring Mode",

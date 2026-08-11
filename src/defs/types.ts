@@ -202,6 +202,7 @@ export interface PluginData {
 
 export interface HeatmapConfig {
 	numberOfWeeks?: number;
+	cellSize?: number;
 	intensityMode: HeatmapColorModes;
 	roundCells: boolean;
 	hideMonthLabels: boolean;
@@ -231,6 +232,7 @@ export const DEFAULT_SETTINGS: Settings = {
 		hideWeekdayLabels: false,
 		alignLeft: false,
 		numberOfWeeks: 52,
+		cellSize: 10,
 		intensityMode: HeatmapColorModes.GRADUAL,
 		intensityStops: {
 			low: 100,

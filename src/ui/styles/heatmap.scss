@@ -129,9 +129,6 @@
     padding-left: 0px;
     mask-image: linear-gradient(to right, transparent 0px, black 28px);
   }
-  &.is-code-block-heatmap .heatmap-content {
-    mask-image: unset;
-  }
 
   .week-day-labels {
     display: none;
@@ -147,6 +144,7 @@
     mask-image: linear-gradient(to left, transparent 2px, black 64px);
   }
 }
+
 .heatmap-square {
   transition-property: background-color;
   transition-duration: 800ms;
@@ -263,8 +261,8 @@
 }
 
 .week-day-label {
-  height: 10px;
-  line-height: 10px;
+  height: var(--cell-size, 10px);
+  line-height: var(--cell-size, 10px);
   font-size: var(--font-smallest);
   color: var(--text-muted);
 }

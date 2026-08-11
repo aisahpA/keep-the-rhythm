@@ -29,6 +29,7 @@ export const Heatmap = ({
 }: HeatmapProps) => {
 	// ── Destructure config ──────────────────────────────────────
 	const weeksToShow = heatmapConfig.numberOfWeeks || 52;
+	const cellSizePx = heatmapConfig.cellSize || 10;
 	const startDate = heatmapConfig.startDate;
 	const {
 		intensityMode,
@@ -144,6 +145,7 @@ export const Heatmap = ({
 					count={count}
 					date={date}
 					squared={squared}
+					cellSize={cellSizePx}
 					intensity={intensityResolver(count)}
 					mode={intensityMode}
 					isToday={false}
@@ -153,7 +155,7 @@ export const Heatmap = ({
 			);
 		}
 		return { before, after, hasToday };
-	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate]);
+	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate, cellSizePx]);
 
 	const todayCell = useMemo(() => {
 		if (!hasToday) return null;
@@ -163,6 +165,7 @@ export const Heatmap = ({
 				count={todayCellData}
 				date={today}
 				squared={squared}
+				cellSize={cellSizePx}
 				intensity={intensityResolver(todayCellData)}
 				mode={intensityMode}
 				isToday
@@ -170,7 +173,7 @@ export const Heatmap = ({
 				selected={today === selectedDate}
 			/>
 		);
-	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate]);
+	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate, cellSizePx]);
 
 	const wrapperClasses = useMemo(
 		() =>
@@ -182,8 +185,8 @@ export const Heatmap = ({
 		[hideWeekdayLabels, hideMonthLabels, alignLeft, isCodeBlock],
 	);
 
-	const gridCols = `repeat(${weeksToShow}, 10px)`;
-	const gridRows = `repeat(7, 10px)`;
+	const gridCols = `repeat(${weeksToShow}, ${cellSizePx}px)`;
+	const gridRows = `repeat(7, ${cellSizePx}px)`;
 
 	return (
 		<RadixTooltip.Provider
@@ -192,7 +195,12 @@ export const Heatmap = ({
 			disableHoverableContent
 		>
 			{historicalCellData && (
-				<div className={wrapperClasses}>
+				<div
+					className={wrapperClasses}
+					style={
+						{ "--cell-size": `${cellSizePx}px` } as React.CSSProperties
+					}
+				>
 					{!hideWeekdayLabels && (
 						<div className="week-day-labels">
 							{weekdaysNames.map((day) => (
