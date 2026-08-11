@@ -15,6 +15,7 @@ import { FileView, Notice, setIcon } from "obsidian";
 import { FileSuggest } from "./FileSuggest";
 import { EntryFilter } from "@/core/codeBlocks";
 import { ActivityRecord } from "@/defs/types";
+import { ConfirmationModal } from "@/ui/settings/ConfirmationModal";
 
 interface EntriesProps {
 	date?: string;
@@ -409,9 +410,20 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 
 	const handleDelete = useCallback(
 		(filePath: string) => {
-			void deleteActivityFromDate(filePath, date);
+			const entry = rawEntries.find((e) => e.filePath === filePath);
+			const name = getFileNameWithoutExtension(filePath);
+			const detail = entry ? ` (${entry.wordsAdded.toLocaleString()} words)` : "";
+			new ConfirmationModal(
+				getPlugin().app,
+				`Delete entry "${name}"${detail} from ${date}? This cannot be undone.`,
+				() => {
+					void deleteActivityFromDate(filePath, date);
+				},
+				undefined,
+				"Delete",
+			).open();
 		},
-		[date],
+		[date, rawEntries],
 	);
 
 	// Commit an in-place edit: 0 deletes, otherwise upserts the new value.
