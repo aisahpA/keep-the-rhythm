@@ -206,6 +206,7 @@ export const useStore = create<KTRState>()(
 			const cur = get();
 			if (cur.todayBaselines[filePath] === baseline) return;
 			cur.todayBaselines[filePath] = baseline;
+			cur.activeFiles.add(filePath); // fix the situation where files are renamed right after they are created
 			set({ todayBaselinesDay: cur.today });
 			get().requestPersist();
 		},
