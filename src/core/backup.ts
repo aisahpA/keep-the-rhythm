@@ -40,7 +40,7 @@ async function backupDataToVaultFolder(
 	const folderPath = backupConfig.folderPath || ".keep-the-rhythm2";
 	const fileName = `backup-${formatDate(new Date())}-${data.schema}.json`;
 	const backupPath = `${folderPath}/${fileName}`;
-	const jsonData = JSON.stringify(data, null, 2);
+	const jsonData = JSON.stringify(data);
 
 	const folderExists = await app.vault.adapter.exists(folderPath);
 	if (!folderExists) {
