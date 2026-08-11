@@ -150,6 +150,19 @@ export const SETTINGS_SCHEMA: SettingsSchema = {
       ],
     },
     {
+      id: "statusBar",
+      title: "Status Bar",
+      settings: [
+        {
+          key: "statusBar.enabled",
+          type: "toggle",
+          title: "Show today's word count",
+          description:
+            "Display today's total word count and your daily goal in the status bar. Click it to open the sidebar.",
+        },
+      ],
+    },
+    {
       id: "backup",
       title: "Backup",
       settings: [

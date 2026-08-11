@@ -6,6 +6,7 @@ import { useStore } from "@/core/store";
 import { PluginView, VIEW_TYPE } from "@/ui/views/PluginView";
 import { SettingsTab } from "@/ui/settings/SettingsTab";
 import { applyHeatmapColorStyles } from "@/ui/styles/applyColorStyles";
+import { TodayWordsStatusBar } from "@/ui/statusBar";
 
 import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
@@ -33,6 +34,8 @@ export default class KeepTheRhythm extends Plugin {
 	// Persistence scheduler with debounce state and unsubscribe handle
 	private persistenceScheduler: PersistenceScheduler | null = null;
 
+	private statusBar: TodayWordsStatusBar | null = null;
+
 	async onload() {
 		setPlugin(this);
 
@@ -57,6 +60,8 @@ export default class KeepTheRhythm extends Plugin {
 		this.initializeCodeBlocks();
 		applyHeatmapColorStyles(this.app.workspace.containerEl);
 		this.addSettingTab(new SettingsTab(this.app, this));
+
+		this.statusBar = new TodayWordsStatusBar(this);
 
 		// The JSON save pipeline subscribes to the store's persistVersion
 		// counter, which is incremented (via requestPersist, rAF-coalesced)
@@ -165,6 +170,9 @@ export default class KeepTheRhythm extends Plugin {
 		// Stop reacting to persist signals.
 		this.persistenceScheduler?.dispose();
 		this.persistenceScheduler = null;
+
+		this.statusBar?.dispose();
+		this.statusBar = null;
 
 		// Back up.  No DB to clear — the in-memory store is
 		// garbage-collected with the plugin.

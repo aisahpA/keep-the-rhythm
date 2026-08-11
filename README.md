@@ -14,6 +14,7 @@ Keep the Rhythm2 is an Obsidian plugin that helps you maintain a consistent writ
 
 - **Heatmap**: View your writing activity over time (helps with consistency and motivation)
 - **Custom Slots**: Various writing statistics (written today, this week, avg. this year, etc.)
+- **Status Bar**: Today's total word count and goal always visible in Obsidian's status bar (click to open the sidebar, toggle in settings)
 - **Entries by Day**: Easily check and navigate to files you have worked on today
 
 - **Embedded Components**: Insert heatmaps, slots, and entries widgets into any note using custom code blocks

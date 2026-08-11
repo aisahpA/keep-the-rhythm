@@ -148,6 +148,10 @@ export interface Settings {
 		folderPath: string;
 	};
 
+	statusBar: {
+		enabled: boolean;
+	};
+
 	sidebarConfig: {
 		visibility: {
 			showSlots: boolean;
@@ -278,5 +282,8 @@ export const DEFAULT_SETTINGS: Settings = {
 		enabled: true,
 		folderPath: ".keep-the-rhythm2",
 		maxNumberOfBackups: 3,
+	},
+	statusBar: {
+		enabled: true,
 	},
 };
