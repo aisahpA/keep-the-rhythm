@@ -1,165 +1,356 @@
-import { formatDateByMoment } from "@/utils/dateUtils";
-import { App, PluginSettingTab, Setting } from "obsidian";
-import { Settings } from "@/defs/types";
-import { useStore } from "@/core/store";
-
-import { SETTINGS_SCHEMA, SettingItem } from "./SettingSchema";
 import {
-  createColorSettings,
+  App,
+  PluginSettingTab,
+  Setting,
+  SettingDefinitionItem,
+  FuzzySuggestModal,
+  TFolder,
+} from "obsidian";
+import { Settings, HeatmapColorModes } from "@/defs/types";
+import { useStore } from "@/core/store";
+import {
   createLanguageDropdown,
   createColorModeSettings,
   createThresholdSettings,
-  createBackupFolderPathSetting,
+  createColorSettings,
+  createStartDateSetting,
 } from "./CustomSettings";
-import { createTrackedFoldersSetting } from "./TrackedFoldersSetting";
+
+let _settingsTab: SettingsTab | null = null;
+export function getSettingsTab(): SettingsTab | null {
+  return _settingsTab;
+}
 
 export class SettingsTab extends PluginSettingTab {
 
   constructor(app: App, plugin: any) {
     super(app, plugin);
+    _settingsTab = this;
   }
 
-  /** Always returns the current store settings reference. */
   private get settings(): Settings {
     return useStore.getState().settings;
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
+  getSettingDefinitions(): SettingDefinitionItem[] {
 
-    // Settings are rendered dinamically based on the settings setup file
-    SETTINGS_SCHEMA.sections.forEach((section) => {
-      new Setting(containerEl).setName(section.title).setHeading();
-
-      section.settings.forEach((setting) => {
-        this.renderSetting(containerEl, setting);
-      });
-    });
+    return [
+      {
+        type: "group",
+        heading: "General",
+        items: [
+          {
+            name: "Enabled Languages",
+            desc: "Select which writing systems to count.",
+            render: (s: Setting) => {
+              createLanguageDropdown(s);
+            },
+          },
+          {
+            name: "Writing Goal",
+            desc: "Amount of words you intend to write on a day.",
+            control: {
+              type: "number",
+              key: "dailyWritingGoal",
+              placeholder: "500",
+              min: 0,
+            },
+          },
+          {
+            name: "Editor Change Sample Delay",
+            desc: "Seconds to wait after typing stops before sampling editor content for word count. Higher values reduce overhead but delay live stats.",
+            control: {
+              type: "slider",
+              key: "editorChangeSampleDelay",
+              min: 0.5,
+              max: 10,
+              step: 0.5,
+            },
+          },
+          {
+            type: "page",
+            name: "Tracked Folders",
+            desc: "Only track files under these folders. Leave empty to track the whole vault.",
+            displayValue: () => {
+							const folders = this.settings.trackedFolders;
+							if (folders.length === 0)
+								return 'None';
+							if (folders.length <= 3)
+								return folders.join(', ');
+							return folders.slice(0, 3).join(', ') + ` (+${folders.length - 3} more)`;
+						},
+            items: [
+              {
+                type: "list",
+                heading: 'Tracked Folders',
+                emptyState: "No folders configured — tracking the whole vault.",
+                items: this.settings.trackedFolders.map((folder) => ({
+									name: folder,
+								})),
+                addItem: {
+                  name: "Add folder",
+                  action: () => {
+                    new FolderSuggestModal(
+											this.app,
+											(path) => {
+												return this.settings.trackedFolders.some(folder => {
+													return path === folder || path.startsWith(folder);
+												})
+											},
+											(path) => {
+                        useStore.getState().mutateSettings((draft) => {
+                          draft.trackedFolders.push(path);
+                        });
+                        this.update();
+											}
+										).open();
+                  },
+                },
+                onDelete: (index: number) => {
+                  useStore.getState().mutateSettings((draft) => {
+                    draft.trackedFolders.splice(index, 1);
+                  });
+                  this.update();
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Heatmaps",
+        items: [
+          {
+            name: "Clicking a Cell Opens its Daily Note",
+            control: {
+              type: "toggle",
+              key: "heatmapNavigation",
+            },
+          },
+          {
+            name: "Rounded Cells",
+            control: {
+              type: "toggle",
+              key: "heatmapConfig.roundCells",
+            },
+          },
+          {
+            name: "Hide Month Labels",
+            control: {
+              type: "toggle",
+              key: "heatmapConfig.hideMonthLabels",
+            },
+          },
+          {
+            name: "Hide Weekday Labels",
+            control: {
+              type: "toggle",
+              key: "heatmapConfig.hideWeekdayLabels",
+            },
+          },
+          {
+            name: "Align heatmap cells to the left",
+            control: {
+              type: "toggle",
+              key: "heatmapConfig.alignLeft",
+            },
+          },
+          {
+            name: "Custom Start Date",
+            desc: "Makes the heatmap start from a specific date (like the start of the year).",
+            render: (s: Setting) => {
+              createStartDateSetting(s);
+            },
+          },
+          {
+            name: "Default number of weeks displayed",
+            control: {
+              type: "number",
+              key: "heatmapConfig.numberOfWeeks",
+            },
+          },
+          {
+            name: "Cell size (px)",
+            desc: "Size of each heatmap cell in pixels.",
+            control: {
+              type: "number",
+              key: "heatmapConfig.cellSize",
+              placeholder: "10",
+            },
+          },
+          {
+            name: "Coloring Mode",
+            desc: "Changes how the heatmap cells are filled.",
+            render: (s: Setting) => {
+              createColorModeSettings(s);
+            },
+          },
+          {
+            name: "Intensity thresholds",
+            desc: "Changes how the color of each cell is calculated.",
+            render: (s: Setting) => {
+              createThresholdSettings(s);
+            },
+          },
+          {
+            name: "Light Theme Colors",
+            desc: "Colors used to paint each cell, ranges vary based on coloring mode.",
+            render: (s: Setting) => {
+              createColorSettings(s, "light");
+            },
+          },
+          {
+            name: "Dark Theme Colors",
+            desc: "Colors used to paint each cell, ranges vary based on coloring mode.",
+            render: (s: Setting) => {
+              createColorSettings(s, "dark");
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Sidebar",
+        items: [
+          {
+            name: "Show overview",
+            desc: "Display the overview section in the word count heatmap.",
+            control: {
+              type: "toggle",
+              key: "sidebarConfig.visibility.showSlots",
+            },
+          },
+          {
+            name: "Show today's entries",
+            desc: "Display which files were edited today and their respective word counts.",
+            control: {
+              type: "toggle",
+              key: "sidebarConfig.visibility.showEntries",
+            },
+          },
+          {
+            name: "Show heatmap",
+            desc: "Displays a heatmap with historic writing data.",
+            control: {
+              type: "toggle",
+              key: "sidebarConfig.visibility.showHeatmap",
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Status Bar",
+        items: [
+          {
+            name: "Show today's word count",
+            desc: "Display today's total word count and your daily goal in the status bar. Click it to open the sidebar.",
+            control: {
+              type: "toggle",
+              key: "statusBar.enabled",
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Backup",
+        items: [
+          {
+            name: "Automatic Backups",
+            desc: "For safety, disabling this does not delete existing back-ups, you have to do it manually.",
+            control: {
+              type: "toggle",
+              key: "backupConfig.enabled",
+            },
+          },
+          {
+            name: "Backup Folder Path",
+            desc: "Location where backup files will be stored (relative to vault root).",
+            visible: () => this.settings.backupConfig.enabled,
+            control: {
+              type: "text",
+              key: "backupConfig.folderPath",
+              placeholder: ".keep-the-rhythm2",
+            },
+          },
+          {
+            name: "Maximum Number of Backups",
+            desc: "How many backup files to keep. Older backups will be automatically deleted.",
+            visible: () => this.settings.backupConfig.enabled,
+            control: {
+              type: "number",
+              key: "backupConfig.maxNumberOfBackups",
+              placeholder: "3",
+            },
+          },
+        ],
+      },
+    ];
   }
 
-  private renderSetting(containerEl: HTMLElement, config: any) {
-    const wrapper = containerEl.createDiv();
-    wrapper.setAttr("data-setting-key", config.key);
+  getControlValue(key: string): unknown {
+    return getByPath(this.settings, key);
+  }
 
-    const setting = new Setting(wrapper)
-      .setName(config.title)
-      .setDesc(config.description ?? "");
-
-    const currentValue = getByPath(this.settings, config.key);
-
-    switch (config.type) {
-      case "toggle":
-        setting.addToggle((toggle) =>
-          toggle.setValue(!!currentValue).onChange((value) => {
-            useStore.getState().mutateSettings((draft) => {
-              setByPath(draft, config.key, value);
-            });
-            updateVisibility(config.key, value);
-          }),
-        );
-        break;
-
-      case "date":
-        setting.addText((text) => {
-          text.inputEl.setAttribute("type", "date");
-          text.setValue(formatDateByMoment(currentValue)).onChange((value) => {
-            const date = value ? new Date(value) : null;
-            useStore.getState().mutateSettings((draft) => {
-              setByPath(draft, config.key, date);
-            });
-            updateVisibility(config.key, date);
-          });
-        });
-        setting.addButton((btn) => {
-          btn
-            .setIcon("trash")
-            .setTooltip("Clear date")
-            .setDisabled(currentValue !== "")
-            .onClick(() => {
-              useStore.getState().mutateSettings((draft) => {
-                setByPath(draft, config.key, undefined);
-              });
-
-              const inputEl = setting.controlEl.querySelector(
-                'input[type="date"]',
-              ) as HTMLInputElement;
-              if (inputEl) inputEl.value = "";
-            });
-        });
-        break;
-
-      case "number": {
-        setting.addText((text) =>
-          text
-            .setPlaceholder(config.placeholder ?? "")
-            .setValue(String(currentValue ?? ""))
-            .onChange((value) => {
-              const num = parseInt(value);
-              if (!isNaN(num)) {
-                useStore.getState().mutateSettings((draft) => {
-                  setByPath(draft, config.key, num);
-                });
-              }
-              updateVisibility(config.key, num);
-            }),
-        );
-        break;
+  setControlValue(key: string, value: unknown): void {
+    let solidGoalSynced = false;
+    useStore.getState().mutateSettings((draft) => {
+      // In SOLID mode the on/off threshold is the daily writing goal.
+      if (
+        key === "dailyWritingGoal" &&
+        draft.heatmapConfig.intensityMode === HeatmapColorModes.SOLID
+      ) {
+        draft.heatmapConfig.intensityStops.low = value as number;
+        solidGoalSynced = true;
       }
-
-      case "dropdown":
-        setting.addDropdown((dropdown) => {
-          dropdown
-            .addOptions(config.options)
-            .setValue(currentValue)
-            .onChange((value) => {
-              useStore.getState().mutateSettings((draft) => {
-                setByPath(draft, config.key, value);
-              });
-              updateVisibility(config.key, value);
-            });
-        });
-        break;
-
-      case "custom":
-        if (config.key == "enabledLanguages") {
-          createLanguageDropdown(setting);
-          break;
-        }
-        if (config.key == "heatmapConfig.intensityStops") {
-          createThresholdSettings(setting);
-          break;
-        }
-        if (config.key == "heatmapConfig.intensityMode") {
-          createColorModeSettings(setting);
-          break;
-        }
-        if (config.key == "heatmapConfig.colors[light]") {
-          createColorSettings(setting, "light");
-          break;
-        }
-        if (config.key == "heatmapConfig.colors[dark]") {
-          createColorSettings(setting, "dark");
-          break;
-        }
-        if (config.key == "backupConfig.folderPath") {
-          createBackupFolderPathSetting(setting, config);
-          break;
-        }
-        if (config.key == "trackedFolders") {
-          createTrackedFoldersSetting(setting, config);
-          break;
-        }
+      setByPath(draft, key, value);
+    });
+    // update() re-runs render callbacks so the SOLID info text stays fresh.
+    if (solidGoalSynced) {
+      this.update();
+    } else {
+      this.refreshDomState();
     }
   }
+
 }
 
-export function getByPath(obj: any, path: string) {
+
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+	constructor(
+		app: App,
+		private isExcluded: (path: string) => boolean,
+		private onSelect: (path: string) => void
+	) {
+		super(app);
+		this.setPlaceholder('Type to search folders...');
+		this.limit = 50;
+		this.emptyStateText = 'No folders found';
+	}
+
+	getItems(): TFolder[] {
+		return this.app.vault.getAllFolders(false)
+			.filter((f) => !this.isExcluded(f.path + '/'))
+			.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	getItemText(folder: TFolder): string {
+		return folder.path;
+	}
+
+	onChooseItem(folder: TFolder): void {
+		this.onSelect(folder.path + '/');
+	}
+}
+
+
+function getByPath(obj: any, path: string) {
   return path.split(".").reduce((acc, key) => acc?.[key], obj);
 }
 
-// Directly mutates the nested property at the given dotted path.
-export function setByPath(obj: any, path: string, value: any) {
+function setByPath(obj: any, path: string, value: any) {
   const keys = path.split(".");
   const last = keys.pop()!;
   let target = obj;
@@ -167,41 +358,4 @@ export function setByPath(obj: any, path: string, value: any) {
     target = target[key];
   }
   target[last] = value;
-}
-
-// Reverse map: for each setting key, which settings depend on it for visibility.
-// Computed once at module load so updateVisibility() only visits relevant settings.
-const VISIBILITY_DEPENDENTS = new Map<string, SettingItem[]>();
-for (const section of SETTINGS_SCHEMA.sections) {
-  for (const s of section.settings) {
-    if (!s.visibleWhen) continue;
-    for (const depKey of Object.keys(s.visibleWhen)) {
-      const list = VISIBILITY_DEPENDENTS.get(depKey);
-      if (list) list.push(s);
-      else VISIBILITY_DEPENDENTS.set(depKey, [s]);
-    }
-  }
-}
-
-export function updateVisibility(changedKey: string, newValue: any) {
-  const dependents = VISIBILITY_DEPENDENTS.get(changedKey);
-  if (!dependents) return;
-
-  for (const s of dependents) {
-    const condition = s.visibleWhen![changedKey];
-
-    const shouldBeVisible =
-      typeof condition === "boolean"
-        ? condition === newValue
-        : Array.isArray(condition)
-          ? condition.includes(newValue)
-          : true;
-
-    const el = document.querySelector(
-      `[data-setting-key="${s.key}"]`,
-    ) as HTMLElement | null;
-    if (!el) continue;
-
-    el.style.display = shouldBeVisible ? "block" : "none";
-  }
 }

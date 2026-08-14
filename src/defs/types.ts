@@ -137,7 +137,7 @@ export interface Settings {
 	 * path equals one of these prefixes or starts with `<prefix>/` are
 	 * tracked. Leave empty to track the whole vault (default behaviour).
 	 */
-	trackedFolders?: string[];
+	trackedFolders: string[];
 	startOfTheWeek: "MONDAY" | "SUNDAY"; // not used yet, should be used to offset start of the week calculations and heatmap
 	heatmapConfig: HeatmapConfig;
 	heatmapNavigation: boolean;

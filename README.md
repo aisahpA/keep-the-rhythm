@@ -81,7 +81,7 @@ Customize your heatmap appearance with various options:
 
 - Coloring Modes:
     - `gradual`: Smooth gradient between colors
-    - `solid`: Single color intensity
+    - `solid`: Single color intensity — a day is colored (full strength) when its word count reaches your daily writing goal; the threshold follows the Writing Goal setting and does not affect other modes (leaving solid restores the default thresholds)
     - `stops`: Discrete color levels with thresholds
     - `liquid`: Color fills cells from bottom up
 - Cell Shape: Choose between **rounded** (default) or **squared** cells
@@ -218,7 +218,7 @@ This branch is a large internal rework of the upstream `keep-the-rhythm` (commit
 - Repository-scoped code (`pluginState.ts`, `devUtils.ts`, `migrateData.ts`).
 
 **Added / improved**
-- **Tracked Folders** setting with a popup manager (`TrackedFoldersSetting.ts`) and path-filtering cache, to restrict tracking to a subset of the vault.
+- **Tracked Folders** setting using Obsidian 1.13 native Settings Lists (`SettingDefinitionList`), with inline add/delete affordances, to restrict tracking to a subset of the vault.
 - **Editor Change Sample Delay** setting (seconds to wait after typing stops before sampling content) with adjustable JSON persistence debounce (2000 ms).
 - **Chinese** option in Enabled Languages (LATIN + CJK scripts).
 - Automatic **backups** (`backup.ts`).

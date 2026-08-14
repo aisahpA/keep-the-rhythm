@@ -50,6 +50,12 @@
 	margin: 0;
 }
 
+.ktr-language-picker-list {
+	max-height: 50vh;
+	overflow-y: auto;
+	margin: 8px 0;
+}
+
 .KTR__file-to-delete {
 	font-weight: var(--bold-weight);
 	color: var(--text-error);
