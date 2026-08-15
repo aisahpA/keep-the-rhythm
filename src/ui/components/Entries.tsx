@@ -85,8 +85,10 @@ const EntryRow = React.memo(function EntryRow({
 			editingClosedRef.current = true;
 			if (commit) {
 				// An emptied input is treated as cancel, not as 0 (delete).
+				// Negative values are allowed: the live delta can be below
+				// the baseline, and the user should be able to correct it.
 				const value = Number(editValue);
-				if (editValue.trim() !== "" && Number.isFinite(value) && value >= 0) {
+				if (editValue.trim() !== "" && Number.isFinite(value)) {
 					if (value === 0) onDelete(entry.filePath);
 					else onUpdate(entry.filePath, value);
 				}
@@ -99,10 +101,11 @@ const EntryRow = React.memo(function EntryRow({
 	const delta = entry.wordsAdded;
 	const prefix = delta > 0 ? "+" : "";
 
-	// Today's delta is measured against the frozen baseline (peak delta —
-	// the stored number never decreases), which makes a low or unmoving
-	// count look broken.  Subscribed per-file so only the row whose
-	// baseline changed re-renders.
+	// Today's delta is measured live against the baseline: it moves with
+	// the editor and can go negative when the file shrinks below the
+	// morning snapshot — a row showing 0 was removed by the sampler.
+	// Subscribed per-file so only the row whose baseline changed
+	// re-renders.
 	const today = useStore((s) => s.today);
 	const baseline = useStore((s) => s.todayBaselines[entry.filePath]);
 	const baselineInfo =
@@ -136,7 +139,6 @@ const EntryRow = React.memo(function EntryRow({
 						ref={inputRef}
 						className="todayEntries__edit-input"
 						type="number"
-						min="0"
 						value={editValue}
 						onChange={(e) => setEditValue(e.target.value)}
 						onKeyDown={(e) => {

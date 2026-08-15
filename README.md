@@ -198,6 +198,8 @@ Data is stored **locally** in `data.json` inside the plugin's data folder — no
 
 Since this branch, historical activity is stored as a **dictionary-encoded** map: file paths are replaced by small integer IDs in `days`, and a separate `fileDict` maps IDs back to paths. `today` activity is kept in a separate partition (`todayBaselines`). This reduces the size of multi-month histories by roughly 60–65%.
 
+Daily per-file values are **live deltas** against the day's baseline snapshot (the file's word count when it was first tracked today): they move with the editor and can go **negative** when a file shrinks below its starting count. Negative rows are kept in storage, shown in the entries list, and can be corrected manually at any time.
+
 Old-format data (from the Dexie-based v0.2.12 / `440c357`) is **migrated automatically** on load — you don't need to do anything manually.
 
 ## What Changed vs. v0.2.12

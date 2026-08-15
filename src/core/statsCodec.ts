@@ -135,14 +135,14 @@ function decodeDayMap(
  * Prune zero-added rows out of a single day map and encode it, assigning
  * a new auto-incremented ID to any path not yet in the dictionary (via
  * module-level `cachedNextId`).
- * Returns the encoded map (empty when the day had no positive rows).
+ * Returns the encoded map (empty when the day had no nonzero rows).
  */
 function encodeDay(
 	day: DayActivityMap,
 ): Record<string, number> {
 	const kept: DayActivityMap = {};
 	for (const [filePath, added] of Object.entries(day)) {
-		if (added > 0) {
+		if (added !== 0) {
 			kept[filePath] = added;
 			if (!(filePath in cachedFileDict)) {
 				cachedFileDict[filePath] = cachedNextId++;
@@ -152,20 +152,19 @@ function encodeDay(
 	return kept ? encodeDayMap(kept) : {};
 }
 
-// filter out baselines for files in todayDay that have no words added
+// Baselines survive for the whole day once set, even when a file's row
+// drops to 0 (editor back at baseline): pruning them would re-anchor the
+// baseline to disk content on the next keystroke — a silent baseline
+// rollback after deletions.  The map is day-scoped (cleared on midnight
+// rollover), so nothing lingers into the next day.
 function encodeBaselines(
 	todayBaselinesDay: string | null,
 	todayBaselines: DayActivityMap,
 	today: string,
-	todayDay: DayActivityMap,
 ): PersistedBaselines | undefined {
 	if (todayBaselinesDay !== today) return undefined;
-	const kept: DayActivityMap = {};
-	for (const [filePath, baseline] of Object.entries(todayBaselines)) {
-		if ((todayDay[filePath] ?? 0) > 0) kept[filePath] = baseline;
-	}
-	if (!Object.keys(kept).length) return undefined;
-	return { day: today, baselines: encodeDayMap(kept) };
+	if (Object.keys(todayBaselines).length === 0) return undefined;
+	return { day: today, baselines: encodeDayMap(todayBaselines) };
 }
 
 /**
@@ -348,7 +347,6 @@ export function encodePersistedStats({
 		todayBaselinesDay,
 		todayBaselines,
 		today,
-		days[today] ?? {},
 	);
 
 	// Drop orphaned fileDict entries (left behind by file renames or deletions).

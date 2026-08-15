@@ -135,25 +135,20 @@ async function runPendingEditorChange(): Promise<void> {
 			cur.settings?.enabledLanguages,
 		);
 
-		const rawDelta = newWordCount - baseline;
-		// Peak delta: the stored value never decreases, so a net-negative
-		// sample looks like a frozen or absent number.  Log the actual
-		// numbers so "delta genuinely ≤ 0" is distinguishable from a bug.
-		if (rawDelta <= 0) {
-			console.info(
-				`KTR: "${filePath}" delta ${rawDelta.toLocaleString()} — ` +
-					`baseline ${baseline.toLocaleString()} → current ` +
-					`${newWordCount.toLocaleString()} — stored value unchanged.`,
-			);
-		}
-		const proposed = Math.max(0, rawDelta);
+		const delta = newWordCount - baseline;
 		const currentAdded = cur.days[cur.today]?.[filePath] ?? 0;
-		const nextAdded = Math.max(currentAdded, proposed);
-		// Skip the upsert when the net delta is non-positive AND no row
-		// exists yet: writing 0 would litter days[today] with a hidden row
-		// that the UI filters out anyway.
-		if (nextAdded > 0 || currentAdded > 0) {
-			cur.upsertAdded(cur.today, filePath, nextAdded);
+		// Live-delta semantics: the stored value tracks the editor's
+		// current position relative to today's baseline — it can go
+		// negative when the file shrinks below the morning snapshot, so
+		// deletions stay visible instead of freezing the number.  A zero
+		// delta removes the row (back at baseline == no net words today),
+		// keeping the day map free of 0-word litter.
+		if (delta === 0) {
+			if (currentAdded !== 0) {
+				cur.deleteActivity(cur.today, filePath);
+			}
+		} else if (delta !== currentAdded) {
+			cur.upsertAdded(cur.today, filePath, delta);
 		}
 	} catch (error) {
 		console.error(`KTR failed sampling ${filePath} | ${error}`);
