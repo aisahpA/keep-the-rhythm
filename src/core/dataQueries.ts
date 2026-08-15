@@ -22,7 +22,11 @@ import { MarkdownView, TFile } from "obsidian";
 export async function getWordCountForFile(file: TFile): Promise<number> {
 	const plugin = getPlugin();
 	let content = await plugin.app.vault.cachedRead(file);
-	if (content === null) {
+	// cachedRead returns Promise<string> — never null per the type
+	// signature, but it CAN return an empty string when the vault cache
+	// hasn't been populated yet (e.g. a freshly created file or a stale
+	// cache entry).  Fall back to the uncached read in that case too.
+	if (!content) {
 		content = await plugin.app.vault.read(file);
 	}
 	return getLanguageBasedWordCount(
@@ -286,8 +290,13 @@ export async function getExistingOrCreateNewEntry(
 	// Prefer the live editor content captured at file-open — the disk read
 	// would race the editor on the first keystroke (the change event has
 	// already fired), producing a permanent offset in the day's delta.
+	// However, the editor content may be an empty string ("") when the
+	// active-leaf-change event fires before the editor content is fully
+	// loaded (editor object exists, but getValue() is empty).  In that
+	// case, fall back to the disk read to avoid setting a baseline of 0
+	// for a file that actually has content.
 	const currentWordCount =
-		liveContent !== undefined
+		liveContent
 			? getLanguageBasedWordCount(liveContent, cur.settings.enabledLanguages)
 			: await getWordCountForFile(file);
 	// Baseline is set eagerly (so isFileLive is true and the first
