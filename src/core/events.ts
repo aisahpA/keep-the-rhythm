@@ -10,8 +10,11 @@ import { getLanguageBasedWordCount } from "@/core/wordCounting";
 import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
 import { isPathTracked } from "./pathFilter";
 
-// Module-level guard — prevents re-entrant activity creation.
-let isUpdatingActivity = false;
+// Per-file-path guard — prevents re-entrant activity creation for the
+// same file without blocking other files.  A module-level boolean would
+// incorrectly intercept a different file's initialization when the user
+// switches tabs while the first file's async disk read is still in flight.
+const updatingFiles = new Set<string>();
 
 let editorChangeTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingEditor: Editor | null = null;
@@ -37,9 +40,9 @@ function isFileLive(file: TFile): boolean {
 }
 
 async function ensureActivityExists(file: TFile, liveContent?: string) {
-	if (isUpdatingActivity || isFileLive(file)) return;
+	if (updatingFiles.has(file.path) || isFileLive(file)) return;
 
-	isUpdatingActivity = true;
+	updatingFiles.add(file.path);
 	try {
 		await flushPendingEditorChange();
 		const st = store();
@@ -47,7 +50,7 @@ async function ensureActivityExists(file: TFile, liveContent?: string) {
 	} catch (error) {
 		console.error("Error creating or updating entry:", error);
 	} finally {
-		isUpdatingActivity = false;
+		updatingFiles.delete(file.path);
 	}
 }
 
@@ -59,7 +62,7 @@ export async function handleFileOpen(leaf: WorkspaceLeaf | null) {
 	const file = leaf.view.file;
 	if (!isMarkdown(file)) return;
 	if (!isPathTracked(file.path)) return;
-	if (isFileLive(file) || isUpdatingActivity) return;
+	if (isFileLive(file) || updatingFiles.has(file.path)) return;
 
 	// Freeze content at focus time — reading after flush would let
 	// keystrokes leak into the baseline and silently swallow words.
