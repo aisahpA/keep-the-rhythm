@@ -8,6 +8,7 @@ import {
 } from "obsidian";
 import { getLanguageBasedWordCount } from "@/core/wordCounting";
 import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
+import { computeLiveDelta, isFileLive } from "@/core/baselines";
 import { isPathTracked } from "./pathFilter";
 
 // Per-file-path guard — prevents re-entrant activity creation for the
@@ -33,14 +34,8 @@ function getEditorChangeDelayMs(): number {
 	return Math.max(delay, 0.5) * 1000;
 }
 
-// File is "live" iff today's baseline exists. Derived from data, so it
-// naturally re-fires after midnight rollover or external sync.
-function isFileLive(file: TFile): boolean {
-	return store().todayBaselines[file.path] !== undefined;
-}
-
 async function ensureActivityExists(file: TFile) {
-	if (updatingFiles.has(file.path) || isFileLive(file)) return;
+	if (updatingFiles.has(file.path) || isFileLive(file.path)) return;
 
 	updatingFiles.add(file.path);
 	try {
@@ -62,7 +57,7 @@ export async function handleFileOpen(leaf: WorkspaceLeaf | null) {
 	const file = leaf.view.file;
 	if (!isMarkdown(file)) return;
 	if (!isPathTracked(file.path)) return;
-	if (isFileLive(file) || updatingFiles.has(file.path)) return;
+	if (isFileLive(file.path) || updatingFiles.has(file.path)) return;
 
 	// The baseline comes from the file's DISK content, not from the editor
 	// snapshot: at active-leaf-change time the view may still be displaying
@@ -115,27 +110,14 @@ async function runPendingEditorChange(): Promise<void> {
 
 	try {
 		const cur = store();
-		const baseline = cur.todayBaselines[filePath];
-		if (baseline === undefined) {
-			// Missing baseline — sampling cannot run.  Not an expected steady
-			// state (ensureActivityExists ran before the debounced sample), so
-			// log it: "no number ever appears" can mean THIS (a tracking bug /
-			// dropped baseline), not just a non-positive delta.
-			console.warn(
-				`KTR: no today baseline for "${filePath}" — sampling skipped. ` +
-					"Possible causes: the file was first touched before tracking " +
-					"was enabled, an external sync dropped today's baselines, or " +
-					"the editor already contained text when the plugin loaded.",
-			);
-			return;
-		}
-
 		const newWordCount = getLanguageBasedWordCount(
 			editor.getValue(),
 			cur.settings?.enabledLanguages,
 		);
 
-		const delta = newWordCount - baseline;
+		const delta = computeLiveDelta(filePath, newWordCount);
+		if (delta === undefined) return;
+
 		const currentAdded = cur.days[cur.today]?.[filePath] ?? 0;
 		// Live-delta semantics: the stored value tracks the editor's
 		// current position relative to today's baseline — it can go

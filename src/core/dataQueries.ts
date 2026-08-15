@@ -14,49 +14,8 @@ import {
 	parseDate,
 } from "@/utils/dateUtils";
 import { getDailySummaryMap, getStreak } from "@/utils/dailySummaryCache";
-import { getLanguageBasedWordCount } from "@/core/wordCounting";
-import { getPlugin } from "@/core/pluginRegistry";
-import { MarkdownView, TFile } from "obsidian";
-
-/** Read the file's current word count (cachedRead with read fallback). */
-export async function getWordCountForFile(file: TFile): Promise<number> {
-	const plugin = getPlugin();
-	let content = await plugin.app.vault.cachedRead(file);
-	// cachedRead returns Promise<string> — never null per the type
-	// signature, but it CAN return an empty string when the vault cache
-	// hasn't been populated yet (e.g. a freshly created file or a stale
-	// cache entry).  Fall back to the uncached read in that case too.
-	if (!content) {
-		content = await plugin.app.vault.read(file);
-	}
-	return getLanguageBasedWordCount(
-		content,
-		useStore.getState().settings.enabledLanguages,
-	);
-}
-
-/**
- * Word count preferring the live editor buffer over disk: rewriting a
- * today baseline would otherwise race unsaved edits (the change event has
- * already fired), baking a permanent offset into the day's delta.  Falls
- * back to the cached disk read when the file isn't open anywhere.
- */
-async function getCurrentWordCountLive(file: TFile): Promise<number> {
-	const app = getPlugin().app;
-	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
-		if (
-			leaf.view instanceof MarkdownView &&
-			leaf.view.file?.path === file.path &&
-			leaf.view.editor
-		) {
-			return getLanguageBasedWordCount(
-				leaf.view.editor.getValue(),
-				useStore.getState().settings.enabledLanguages,
-			);
-		}
-	}
-	return getWordCountForFile(file);
-}
+import { ensureBaseline, setBaselineFromManualEntry } from "@/core/baselines";
+import { TFile } from "obsidian";
 
 /** Version selectors for React components to subscribe to. */
 export const selectTodayVersion = (s: KTRState) => s.todayVersion;
@@ -280,25 +239,18 @@ export async function getExistingOrCreateNewEntry(
 	if (entry) {
 		// Row exists but the live baseline was lost (e.g. stale external
 		// merge or a restart that slept through midnight) — re-capture it.
-		if (date === cur.today && cur.todayBaselines[file.path] === undefined) {
-			cur.setBaseline(file.path, await getWordCountForFile(file));
+		if (date === cur.today) {
+			await ensureBaseline(file);
 		}
 		return entry;
 	}
 
-	// The baseline is read from DISK on purpose — the editor snapshot is
-	// unreliable at this moment: at active-leaf-change the view may still
-	// hold the previously focused file's content (the new content loads
-	// asynchronously), which would silently set a wrong baseline.  Disk
-	// reads never race keystrokes either (typing only reaches disk on
-	// save), so words typed right after focus still count as today's delta.
-	const currentWordCount = await getWordCountForFile(file);
 	// Baseline is set eagerly (so isFileLive is true and the first
 	// keystroke short-circuits), but NO row is written: a bare file open
 	// must not litter the day with a 0-word entry.  The row only appears
 	// (lazily) when the first debounced sample computes a non-zero delta.
-	if (date === cur.today && cur.todayBaselines[file.path] === undefined) {
-		cur.setBaseline(file.path, currentWordCount);
+	if (date === cur.today) {
+		await ensureBaseline(file);
 	}
 	return { date, filePath: file.path, wordsAdded: 0 };
 }
@@ -316,10 +268,10 @@ export const deleteActivityFromDate = (
 /**
  * Add or update the activity row for (date, filePath), storing `wordAdded`
  * as the day's total for that file.  For today the baseline is always
- * recomputed (`currentCount - added`) so the manual value acts as the
- * anchor for live tracking — subsequent typing accumulates on top of it
- * instead of the live sampler silently overriding a lower manual value.
- * Historical dates need no baseline at all.
+ * recomputed (`currentCount - added`, see setBaselineFromManualEntry) so
+ * the manual value acts as the anchor for live tracking — subsequent
+ * typing accumulates on top of it instead of the live sampler silently
+ * overriding a lower manual value.  Historical dates need no baseline at all.
  */
 export const addOrUpdateActivity = async (
 	file: TFile,
@@ -329,8 +281,7 @@ export const addOrUpdateActivity = async (
 	const cur = useStore.getState();
 
 	if (date === cur.today) {
-		const currentWordCount = await getCurrentWordCountLive(file);
-		cur.setBaseline(file.path, Math.max(0, currentWordCount - wordAdded));
+		await setBaselineFromManualEntry(file, wordAdded);
 	}
 
 	cur.upsertAdded(date, file.path, wordAdded);
