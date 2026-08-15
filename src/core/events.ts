@@ -39,14 +39,14 @@ function isFileLive(file: TFile): boolean {
 	return store().todayBaselines[file.path] !== undefined;
 }
 
-async function ensureActivityExists(file: TFile, liveContent?: string) {
+async function ensureActivityExists(file: TFile) {
 	if (updatingFiles.has(file.path) || isFileLive(file)) return;
 
 	updatingFiles.add(file.path);
 	try {
 		await flushPendingEditorChange();
 		const st = store();
-		await getExistingOrCreateNewEntry(file, st.today, liveContent);
+		await getExistingOrCreateNewEntry(file, st.today);
 	} catch (error) {
 		console.error("Error creating or updating entry:", error);
 	} finally {
@@ -64,10 +64,14 @@ export async function handleFileOpen(leaf: WorkspaceLeaf | null) {
 	if (!isPathTracked(file.path)) return;
 	if (isFileLive(file) || updatingFiles.has(file.path)) return;
 
-	// Freeze content at focus time — reading after flush would let
-	// keystrokes leak into the baseline and silently swallow words.
-	const liveContent = leaf.view.editor?.getValue();
-	await ensureActivityExists(file, liveContent);
+	// The baseline comes from the file's DISK content, not from the editor
+	// snapshot: at active-leaf-change time the view may still be displaying
+	// the PREVIOUS file's content (the new file loads asynchronously), so
+	// editor.getValue() can bake the wrong file's word count into today's
+	// baseline.  Disk reads are immune to that staleness AND to keystrokes
+	// (typing only reaches disk on save), so words typed right after focus
+	// still count as today's delta.
+	await ensureActivityExists(file);
 }
 
 export async function handleEditorChange(
@@ -112,17 +116,45 @@ async function runPendingEditorChange(): Promise<void> {
 	try {
 		const cur = store();
 		const baseline = cur.todayBaselines[filePath];
-		if (baseline === undefined) return;
+		if (baseline === undefined) {
+			// Missing baseline — sampling cannot run.  Not an expected steady
+			// state (ensureActivityExists ran before the debounced sample), so
+			// log it: "no number ever appears" can mean THIS (a tracking bug /
+			// dropped baseline), not just a non-positive delta.
+			console.warn(
+				`KTR: no today baseline for "${filePath}" — sampling skipped. ` +
+					"Possible causes: the file was first touched before tracking " +
+					"was enabled, an external sync dropped today's baselines, or " +
+					"the editor already contained text when the plugin loaded.",
+			);
+			return;
+		}
 
 		const newWordCount = getLanguageBasedWordCount(
 			editor.getValue(),
 			cur.settings?.enabledLanguages,
 		);
 
-		// Peak delta: stored value never decreases.
-		const proposed = Math.max(0, newWordCount - baseline);
+		const rawDelta = newWordCount - baseline;
+		// Peak delta: the stored value never decreases, so a net-negative
+		// sample looks like a frozen or absent number.  Log the actual
+		// numbers so "delta genuinely ≤ 0" is distinguishable from a bug.
+		if (rawDelta <= 0) {
+			console.info(
+				`KTR: "${filePath}" delta ${rawDelta.toLocaleString()} — ` +
+					`baseline ${baseline.toLocaleString()} → current ` +
+					`${newWordCount.toLocaleString()} — stored value unchanged.`,
+			);
+		}
+		const proposed = Math.max(0, rawDelta);
 		const currentAdded = cur.days[cur.today]?.[filePath] ?? 0;
-		cur.upsertAdded(cur.today, filePath, Math.max(currentAdded, proposed));
+		const nextAdded = Math.max(currentAdded, proposed);
+		// Skip the upsert when the net delta is non-positive AND no row
+		// exists yet: writing 0 would litter days[today] with a hidden row
+		// that the UI filters out anyway.
+		if (nextAdded > 0 || currentAdded > 0) {
+			cur.upsertAdded(cur.today, filePath, nextAdded);
+		}
 	} catch (error) {
 		console.error(`KTR failed sampling ${filePath} | ${error}`);
 	}

@@ -273,7 +273,6 @@ export function getCurrentCount(
 export async function getExistingOrCreateNewEntry(
 	file: TFile,
 	date: string,
-	liveContent?: string,
 ): Promise<ActivityRecord> {
 	const cur = useStore.getState();
 	const entry = getActivityByDateAndFile(date, file.path);
@@ -287,18 +286,13 @@ export async function getExistingOrCreateNewEntry(
 		return entry;
 	}
 
-	// Prefer the live editor content captured at file-open — the disk read
-	// would race the editor on the first keystroke (the change event has
-	// already fired), producing a permanent offset in the day's delta.
-	// However, the editor content may be an empty string ("") when the
-	// active-leaf-change event fires before the editor content is fully
-	// loaded (editor object exists, but getValue() is empty).  In that
-	// case, fall back to the disk read to avoid setting a baseline of 0
-	// for a file that actually has content.
-	const currentWordCount =
-		liveContent
-			? getLanguageBasedWordCount(liveContent, cur.settings.enabledLanguages)
-			: await getWordCountForFile(file);
+	// The baseline is read from DISK on purpose — the editor snapshot is
+	// unreliable at this moment: at active-leaf-change the view may still
+	// hold the previously focused file's content (the new content loads
+	// asynchronously), which would silently set a wrong baseline.  Disk
+	// reads never race keystrokes either (typing only reaches disk on
+	// save), so words typed right after focus still count as today's delta.
+	const currentWordCount = await getWordCountForFile(file);
 	// Baseline is set eagerly (so isFileLive is true and the first
 	// keystroke short-circuits), but NO row is written: a bare file open
 	// must not litter the day with a 0-word entry.  The row only appears

@@ -99,6 +99,29 @@ const EntryRow = React.memo(function EntryRow({
 	const delta = entry.wordsAdded;
 	const prefix = delta > 0 ? "+" : "";
 
+	// Today's delta is measured against the frozen baseline (peak delta —
+	// the stored number never decreases), which makes a low or unmoving
+	// count look broken.  Subscribed per-file so only the row whose
+	// baseline changed re-renders.
+	const today = useStore((s) => s.today);
+	const baseline = useStore((s) => s.todayBaselines[entry.filePath]);
+	const baselineInfo =
+		entry.date === today && baseline !== undefined
+			? `Baseline ${baseline.toLocaleString()} → current ${(
+					baseline + delta
+				).toLocaleString()} (${prefix}${delta.toLocaleString()} today)`
+			: null;
+
+	const countSpan = (
+		<span
+			className="todayEntries__word-count"
+			onDoubleClick={startEditing}
+		>
+			{prefix}
+			{delta.toLocaleString()}
+		</span>
+	);
+
 	return (
 		<div className="todayEntires__list-item">
 			<span
@@ -124,13 +147,11 @@ const EntryRow = React.memo(function EntryRow({
 					/>
 				) : (
 					<>
-						<span
-							className="todayEntries__word-count"
-							onDoubleClick={startEditing}
-						>
-							{prefix}
-							{delta.toLocaleString()}
-						</span>
+						{baselineInfo ? (
+							<Tooltip content={baselineInfo}>{countSpan}</Tooltip>
+						) : (
+							countSpan
+						)}
 						<span className="todayEntries_list-item-unit">
 							{" words"}
 						</span>
