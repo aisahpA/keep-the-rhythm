@@ -42,12 +42,15 @@ export default class KeepTheRhythm extends Plugin {
 		// we hydrate it from data.json below.
 		const loadedData = await this.loadData();
 
-		await backupData(loadedData, this.app);
-
 		// Sync Zustand store with loaded data before any React
 		// component mounts.  After this point, store.settings /
 		// store.today are all populated.
 		useStore.getState().hydrateFromData(loadedData);
+
+		// Fire-and-forget daily backup — it performs several vault I/O
+		// calls, so awaiting it here would delay plugin activation (views,
+		// commands, events, status bar).
+		void backupData(loadedData, this.app);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {

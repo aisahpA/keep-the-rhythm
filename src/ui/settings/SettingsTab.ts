@@ -277,12 +277,18 @@ export class SettingsTab extends PluginSettingTab {
           },
           {
             name: "Maximum Number of Backups",
-            desc: "How many backup files to keep. Older backups will be automatically deleted.",
+            desc: "How many backup files to keep. Older backups will be automatically deleted. One backup is written per day.",
             visible: () => this.settings.backupConfig.enabled,
             control: {
               type: "number",
               key: "backupConfig.maxNumberOfBackups",
-              placeholder: "3",
+              min: 1,
+              step: 1,
+              validate: (value: number) => {
+                if (!Number.isInteger(value) || value < 1) {
+                  return "Must be an integer greater than 0.";
+                }
+              },
             },
           },
         ],

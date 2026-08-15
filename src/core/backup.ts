@@ -54,7 +54,8 @@ async function backupDataToVaultFolder(
 		}
 	}
 	await app.vault.adapter.write(backupPath, jsonData);
-	new Notice("KTR: New backup saved.");
+	//new Notice("KTR: New backup saved."); // Comment out to avoid spamming the user.
+	console.log("KTR: New backup saved.");
 
     const maxBackups = backupConfig.maxNumberOfBackups || 3;
 	await cleanOlderBackups(folderPath, maxBackups, app);
