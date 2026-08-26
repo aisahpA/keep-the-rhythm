@@ -7,8 +7,12 @@ import { getPlugin } from "./pluginRegistry";
  */
 export async function activateSidebarView() {
 	const app = getPlugin().app;
-	// Return if view already exists
-	if (app.workspace.getLeavesOfType(VIEW_TYPE).length > 0) return;
+	// If the view already exists, reveal it and return
+	const existing = app.workspace.getLeavesOfType(VIEW_TYPE);
+	if (existing.length > 0) {
+		await app.workspace.revealLeaf(existing[0]);
+		return;
+	}
 
 	// Get the leaf and focus on it
 	const leaf = app.workspace.getRightLeaf(false);
