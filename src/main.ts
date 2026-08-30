@@ -10,9 +10,8 @@ import { TodayWordsStatusBar } from "@/ui/statusBar";
 import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
 import { activateSidebarView } from "@/core/commands";
-import { backupData } from "@/core/backup";
+import { snapshotRawDataFile } from "@/core/backup";
 import {
-	preparePersistData,
 	setupPersistenceScheduling,
 	PersistenceScheduler,
 } from "@/core/dataPersistence";
@@ -47,10 +46,10 @@ export default class KeepTheRhythm extends Plugin {
 		// store.today are all populated.
 		useStore.getState().hydrateFromData(loadedData);
 
-		// Fire-and-forget daily backup — it performs several vault I/O
-		// calls, so awaiting it here would delay plugin activation (views,
-		// commands, events, status bar).
-		void backupData(loadedData, this.app);
+		// Snapshot the on-disk data.json BEFORE anything can overwrite it
+		// (hydrate → persist).  Write-once per day: the retained copy is
+		// always the pre-reset state captured at the first open.
+		await snapshotRawDataFile(this, this.app, loadedData);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {
@@ -167,10 +166,6 @@ export default class KeepTheRhythm extends Plugin {
 
 		this.statusBar?.dispose();
 		this.statusBar = null;
-
-		// Back up.  No DB to clear — the in-memory store is
-		// garbage-collected with the plugin.
-		await backupData(preparePersistData(), this.app);
 
 		// Reset the module-level partitioned cache so stale data doesn't
 		// leak into the next plugin load cycle.

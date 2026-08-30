@@ -276,8 +276,8 @@ export class SettingsTab extends PluginSettingTab {
             },
           },
           {
-            name: "Maximum Number of Backups",
-            desc: "How many backup files to keep. Older backups will be automatically deleted. One backup is written per day.",
+            name: "Backup Days Retained",
+            desc: "How many days of backups to keep (one backup per day, taken at the first launch of that day). Older backups will be automatically deleted.",
             visible: () => this.settings.backupConfig.enabled,
             control: {
               type: "number",

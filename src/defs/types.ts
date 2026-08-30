@@ -283,7 +283,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	backupConfig: {
 		enabled: true,
 		folderPath: ".keep-the-rhythm2",
-		maxNumberOfBackups: 3,
+		maxNumberOfBackups: 7,
 	},
 	statusBar: {
 		enabled: true,
