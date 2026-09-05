@@ -17,7 +17,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
   const effectiveSlots = isCodeBlock ? slotsProp : storeSlots;
 
   const uuidMapRef = useRef<Map<number, string>>(new Map());
-  const nodeRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement> }>(
+  const nodeRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement | null> }>(
     {},
   );
 

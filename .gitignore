@@ -1,29 +1,20 @@
-# vscode
+# IDE files
+*.iml
+.idea
 .vscode 
-
-# npm
-node_modules
-package-lock.json
-
-# Don't include the compiled main.js file in the repo.
-# They should be uploaded to GitHub releases instead.
-main.js
-styles.css
-
-# Exclude sourcemaps
-*.map
-meta.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
 
-# Ignore KTR files with data
-ktr-*
-main.css
-project_notes.md
-test.json
-keep-the-rhythm2-backup-*
-backup-*
-keep-the-rhythm2-*
-data copy.json
+# npm
+node_modules
+
+# build
+main.js
+*.js.map
+meta.json
+styles.css
 data.json
+
+# local config
+reload.local.sh

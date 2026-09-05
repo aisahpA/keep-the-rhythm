@@ -8,7 +8,7 @@ export const VIEW_TYPE = "keep-the-rhythm2";
 
 export class PluginView extends ItemView {
 	plugin: KeepTheRhythm;
-	root: Root | null;
+	root: Root | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: KeepTheRhythm) {
 		super(leaf);
