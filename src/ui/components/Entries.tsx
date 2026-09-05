@@ -305,7 +305,6 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 	// value bails out, so this cannot loop.
 	useEffect(() => {
 		onDateChange?.(selectedDate);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedDate]);
 
 	// Midnight rollover: only follow the calendar when the user is still on
@@ -507,7 +506,7 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 						<EntryRow
 							key={entry.filePath}
 							entry={entry}
-							onOpenFile={handleOpenFile}
+							onOpenFile={(fp) => void handleOpenFile(fp)}
 							onDelete={handleDelete}
 							onUpdate={handleUpdate}
 						/>

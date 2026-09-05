@@ -17,7 +17,7 @@ import { isPathTracked } from "./pathFilter";
 // switches tabs while the first file's async disk read is still in flight.
 const updatingFiles = new Set<string>();
 
-let editorChangeTimer: ReturnType<typeof setTimeout> | null = null;
+let editorChangeTimer: number | null = null;
 let pendingEditor: Editor | null = null;
 type FileChangeInfo = MarkdownView | MarkdownFileInfo;
 let pendingInfo: FileChangeInfo | null = null;
@@ -83,9 +83,9 @@ export async function handleEditorChange(
 	pendingEditor = editor;
 	pendingInfo = info;
 
-	if (editorChangeTimer) clearTimeout(editorChangeTimer);
+	if (editorChangeTimer) window.clearTimeout(editorChangeTimer);
 	const delayMs = getEditorChangeDelayMs();
-	editorChangeTimer = setTimeout(() => {
+	editorChangeTimer = window.setTimeout(() => {
 		editorChangeTimer = null;
 		void runPendingEditorChange();
 	}, delayMs);
@@ -93,7 +93,7 @@ export async function handleEditorChange(
 
 export async function flushPendingEditorChange(): Promise<void> {
 	if (!editorChangeTimer) return;
-	clearTimeout(editorChangeTimer);
+	window.clearTimeout(editorChangeTimer);
 	editorChangeTimer = null;
 	await runPendingEditorChange();
 }

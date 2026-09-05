@@ -45,14 +45,14 @@ export class TodayWordsStatusBar {
 	private render() {
 		const { settings } = useStore.getState();
 		if (!settings.statusBar?.enabled) {
-			this.itemEl.style.display = "none";
+			this.itemEl.hide();
 			return;
 		}
 
 		const words = getCurrentCount(TargetCount.CURRENT_DAY);
 		const goal = settings.dailyWritingGoal;
 
-		this.itemEl.style.display = "";
+		this.itemEl.show();
 		this.itemEl.empty();
 		setIcon(this.itemEl, ICON);
 		this.itemEl.createSpan({

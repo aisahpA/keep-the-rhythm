@@ -1,5 +1,6 @@
 import {
   App,
+  Plugin,
   PluginSettingTab,
   Setting,
   SettingDefinitionItem,
@@ -23,9 +24,13 @@ export function getSettingsTab(): SettingsTab | null {
 
 export class SettingsTab extends PluginSettingTab {
 
-  constructor(app: App, plugin: any) {
+  constructor(app: App, plugin: Plugin) {
     super(app, plugin);
-    _settingsTab = this;
+    SettingsTab.register(this);
+  }
+
+  private static register(tab: SettingsTab) {
+    _settingsTab = tab;
   }
 
   private get settings(): Settings {
@@ -352,16 +357,24 @@ class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 }
 
 
-function getByPath(obj: any, path: string) {
-  return path.split(".").reduce((acc, key) => acc?.[key], obj);
+function getByPath(obj: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>(
+    (acc, key) =>
+      acc && typeof acc === "object"
+        ? (acc as Record<string, unknown>)[key]
+        : undefined,
+    obj,
+  );
 }
 
-function setByPath(obj: any, path: string, value: any) {
+function setByPath(obj: unknown, path: string, value: unknown): void {
   const keys = path.split(".");
   const last = keys.pop()!;
-  let target = obj;
+  let target = obj as Record<string, unknown> | undefined;
   for (const key of keys) {
-    target = target[key];
+    target = target?.[key] as Record<string, unknown> | undefined;
   }
-  target[last] = value;
+  if (target) {
+    target[last] = value;
+  }
 }

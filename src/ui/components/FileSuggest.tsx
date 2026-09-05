@@ -3,7 +3,7 @@ import { App, AbstractInputSuggest, TFile } from "obsidian";
 export class FileSuggest extends AbstractInputSuggest<TFile> {
 	app: App;
 	inputEl: HTMLInputElement;
-	private searchTimer: ReturnType<typeof setTimeout> | null = null;
+	private searchTimer: number | null = null;
 	private pendingQuery = "";
 
 	constructor(app: App, inputEl: HTMLInputElement) {
@@ -22,8 +22,8 @@ export class FileSuggest extends AbstractInputSuggest<TFile> {
 	getSuggestions(query: string): Promise<TFile[]> {
 		this.pendingQuery = query;
 		return new Promise<TFile[]>((resolve) => {
-			if (this.searchTimer) clearTimeout(this.searchTimer);
-			this.searchTimer = setTimeout(() => {
+			if (this.searchTimer) window.clearTimeout(this.searchTimer);
+			this.searchTimer = window.setTimeout(() => {
 				this.searchTimer = null;
 				resolve(this.runSearch(this.pendingQuery));
 			}, 250);

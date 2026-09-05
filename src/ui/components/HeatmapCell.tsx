@@ -78,7 +78,7 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 			if (existingLeaf) {
 				app.workspace.setActiveLeaf(existingLeaf);
 			} else {
-				app.workspace.getLeaf(true).openFile(existingFile);
+				await app.workspace.getLeaf(true).openFile(existingFile);
 			}
 		} else {
 			const newFile = await app.vault.create(notePath, "");
@@ -125,7 +125,11 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 
 	return (
 		<Tooltip content={tooltipContent}>
-			<div onClick={handleClick} className={classes} style={style}></div>
+			<div
+				onClick={(e) => void handleClick(e)}
+				className={classes}
+				style={style}
+			></div>
 		</Tooltip>
 	);
 });

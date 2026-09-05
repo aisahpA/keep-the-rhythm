@@ -35,10 +35,10 @@ export async function snapshotRawDataFile(
 			await app.vault.adapter.mkdir(folderPath);
 		}
 		await app.vault.adapter.write(backupPath, await app.vault.adapter.read(dataPath));
-		new Notice("KTR: New backup saved.");
+		new Notice("Ktr: New backup saved.");
 	} catch (err) {
 		console.error("KTR Error trying to create backup: ", err);
-		new Notice("KTR: Backup failed — see developer console for details.");
+		new Notice("Ktr: Backup failed — see developer console for details.");
 	}
 
 	await cleanOlderBackups(folderPath, config.maxNumberOfBackups ?? DEFAULT_BACKUP_DAYS, app);

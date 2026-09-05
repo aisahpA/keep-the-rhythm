@@ -147,7 +147,7 @@ export const useStore = create<KTRState>()(
 			pendingPersist = true;
 			if (persistRafScheduled) return;
 			persistRafScheduled = true;
-			requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => {
 				persistRafScheduled = false;
 				if (pendingPersist) {
 					pendingPersist = false;

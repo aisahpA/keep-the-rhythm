@@ -68,18 +68,18 @@ export interface PersistenceScheduler {
 export function setupPersistenceScheduling(
 	plugin: Plugin,
 ): PersistenceScheduler {
-	let JsonDebounceTimeout: any = null;
+	let JsonDebounceTimeout: number | null = null;
 	let _saveGen = 0;
 
 	const scheduleSave = () => {
-		clearTimeout(JsonDebounceTimeout);
+		if (JsonDebounceTimeout !== null) window.clearTimeout(JsonDebounceTimeout);
 
 		_saveGen++;
 		const gen = _saveGen;
-		JsonDebounceTimeout = setTimeout(async () => {
+		JsonDebounceTimeout = window.setTimeout(() => {
 			if (gen !== _saveGen) return;
 			JsonDebounceTimeout = null;
-			await saveDataToDisk(plugin);
+			void saveDataToDisk(plugin);
 		}, JSON_DEBOUNCE_TIME);
 	};
 
@@ -89,8 +89,8 @@ export function setupPersistenceScheduling(
 	);
 
 	const flushNow = async () => {
-		if (JsonDebounceTimeout) {
-			clearTimeout(JsonDebounceTimeout);
+		if (JsonDebounceTimeout !== null) {
+			window.clearTimeout(JsonDebounceTimeout);
 			JsonDebounceTimeout = null;
 		}
 		_saveGen++; // invalidate any in-flight debounced save
@@ -101,7 +101,7 @@ export function setupPersistenceScheduling(
 		dispose: () => {
 			unsub();
 			_saveGen++;
-			clearTimeout(JsonDebounceTimeout);
+			if (JsonDebounceTimeout !== null) window.clearTimeout(JsonDebounceTimeout);
 			JsonDebounceTimeout = null;
 		},
 		flushNow,

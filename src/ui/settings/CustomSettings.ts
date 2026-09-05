@@ -16,7 +16,7 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
   if (!settings.heatmapConfig.colors) return;
 
   const mode = settings.heatmapConfig.intensityMode;
-  const colorValues = settings.heatmapConfig.colors[theme] as ColorConfig;
+  const colorValues = settings.heatmapConfig.colors[theme];
 
   let levelsToShow: (keyof ColorConfig)[] = [];
 
@@ -196,7 +196,7 @@ export function createThresholdSettings(setting: Setting) {
 	const hint = setting.controlEl.createSpan({ cls: "ktr__threshold-hint" });
 	if (intensityMode === HeatmapColorModes.STOPS) {
 		hint.setText(
-			"0 words → level 0 (uncolored); under Low → level 1; Low–Medium → level 2; Medium–High → level 3; above High → level 4 (strongest color).",
+			"0 Words → level 0 (uncolored); under low → level 1; Low–medium → level 2; Medium–high → level 3; above high → level 4 (strongest color).",
 		);
 	} else {
 		hint.setText(

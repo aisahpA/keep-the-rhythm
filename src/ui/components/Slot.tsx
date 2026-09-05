@@ -74,7 +74,7 @@ export const Slot = React.memo(function Slot({
 	const setCalcButtonIcon = useCallback(
 		(el: HTMLButtonElement | null) => {
 			if (!el || el.dataset.iconSet === calcMode) return;
-			setIcon(el, calcMode === "TOTAL" ? "chart-spline" : "sigma");
+			setIcon(el, calcMode === CalculationType.TOTAL ? "chart-spline" : "sigma");
 			el.dataset.iconSet = calcMode;
 		},
 		[calcMode],
@@ -144,7 +144,7 @@ export const Slot = React.memo(function Slot({
 							{showCalcType && (
 								<Tooltip
 									content={
-										calcMode == "TOTAL"
+										calcMode == CalculationType.TOTAL
 											? "Show daily average"
 											: "Show total"
 									}
@@ -195,7 +195,7 @@ export const Slot = React.memo(function Slot({
 				<div className="slot__unit">
 					{unitText()}
 					<span className="slot__unit-avg">
-						{showCalcType && calcMode == "AVG" ? "/day" : ""}
+						{showCalcType && calcMode == CalculationType.AVG ? "/day" : ""}
 					</span>
 				</div>
 			</div>

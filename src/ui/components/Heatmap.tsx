@@ -5,7 +5,7 @@ import { getDateForCell, formatDate, getToday } from "@/utils/dateUtils";
 import { ActivityRecord, DayActivityMap } from "@/defs/types";
 import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
 import { HeatmapCell } from "./HeatmapCell";
-import { compileEvaluator } from "@/core/codeBlockQuery";
+import { compileEvaluator, FilterNode } from "@/core/codeBlockQuery";
 import { useStore } from "@/core/store";
 import { selectTodayVersion, selectHistoricalVersion } from "@/core/dataQueries";
 import { getDailySummaryMap } from "@/utils/dailySummaryCache";
@@ -14,7 +14,7 @@ const moment = _moment as unknown as typeof _moment.default;
 
 interface HeatmapProps {
 	heatmapConfig: HeatmapConfig;
-	fileFilter?: any;
+	fileFilter?: unknown;
 	isCodeBlock?: boolean;
 	onCellClick?: (date: string) => void;
 	selectedDate?: string;
@@ -53,19 +53,21 @@ export const Heatmap = ({
 
 	// ── Filter state ────────────────────────────────────────────
 	const filterState = useMemo(() => {
-		if (!fileFilter) return null;
+		const filter = fileFilter as FilterNode | null | undefined;
+		if (!filter) return null;
 		if (
-			fileFilter.type === "BinaryExpression" &&
-			(fileFilter.operator === "starts_with" || fileFilter.operator === "STARTS_WITH")
+			filter.type === "BinaryExpression" &&
+			(filter.operator === "starts_with" ||
+				filter.operator === "STARTS_WITH")
 		) {
-			const raw = fileFilter.right?.value;
+			const raw = filter.right?.value;
 			if (typeof raw === "string") {
 				const prefix = raw.startsWith("/") ? raw.slice(1) : raw;
 				return { kind: "prefix" as const, prefix };
 			}
 		}
 		try {
-			const evaluator = compileEvaluator(fileFilter);
+			const evaluator = compileEvaluator(filter);
 			return { kind: "evaluator" as const, evaluator };
 		} catch {
 			return null;
@@ -314,7 +316,7 @@ function buildIntensityResolver(
 
 	switch (mode) {
 		case HeatmapColorModes.GRADUAL:
-		case HeatmapColorModes.LIQUID:
+		case HeatmapColorModes.LIQUID: {
 			if (high === low) return (c) => (c >= high ? 100 : 0);
 			const span = high - low;
 			return (c) => {
@@ -322,6 +324,7 @@ function buildIntensityResolver(
 				if (c >= high) return 100;
 				return ((c - low) / span) * 100;
 			};
+		}
 
 		case HeatmapColorModes.SOLID:
 			return (c) => (c >= low ? 4 : 0);

@@ -57,7 +57,7 @@ Set and track your daily writing goals:
 
 ### Tracking Scope
 
-By default Keep the Rhythm tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
+By default Keep the Rhythm2 tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
 
 Add one folder at a time: type the folder path (e.g. `20-research`) into the input and click **Add** (or press Enter). Each added folder shows up as a row with a trash button; click the trash button to remove it.
 
@@ -102,7 +102,7 @@ Display various writing statistics using customizable slots:
 
 ### Code Blocks
 
-Keep the Rhythm provides three types of embeddable code blocks.
+Keep the Rhythm2 provides three types of embeddable code blocks.
 
 > A block can be created by using the code block syntax (3 backticks on start and end) and a keyword to specify the block type.
 

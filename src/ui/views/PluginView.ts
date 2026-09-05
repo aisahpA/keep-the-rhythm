@@ -20,7 +20,7 @@ export class PluginView extends ItemView {
 	}
 
 	getDisplayText() {
-		return "Keep the Rhythm";
+		return "Keep the rhythm2";
 	}
 
 	getIcon(): string {
@@ -30,7 +30,7 @@ export class PluginView extends ItemView {
 	async onOpen() {
 		const container = this.containerEl.children[1];
 		container.empty();
-		const reactContainer = container.createEl("div");
+		const reactContainer = container.createDiv();
 		this.root = createRoot(reactContainer);
 
 		// KTRView reads everything it needs from the Zustand store, so no

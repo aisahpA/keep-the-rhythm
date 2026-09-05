@@ -26,7 +26,7 @@ import { Notice } from "obsidian";
 export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 	try {
 		// 1. 先读盘 —— 外部数据现在活在内存里了
-		const newData = await plugin.loadData();
+		const newData = (await plugin.loadData()) as PluginData | null;
 		if (!newData) return;
 
 		const cur = useStore.getState();

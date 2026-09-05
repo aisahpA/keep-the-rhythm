@@ -1,4 +1,4 @@
-import { Plugin, TFile, TAbstractFile, moment as _moment } from "obsidian";
+import { Plugin, TFile, TAbstractFile } from "obsidian";
 
 import { setPlugin } from "@/core/pluginRegistry";
 import { useStore } from "@/core/store";
@@ -16,6 +16,7 @@ import {
 	PersistenceScheduler,
 } from "@/core/dataPersistence";
 import { handleExternalDataChange } from "@/core/externalSync";
+import { PluginData } from "@/defs/types";
 import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
 import { resetStatsCodecCache } from "@/core/statsCodec";
 import { resetDataQueryCaches } from "@/core/dataQueries";
@@ -39,7 +40,7 @@ export default class KeepTheRhythm extends Plugin {
 
 		// No DB to initialise — the in-memory store is empty until
 		// we hydrate it from data.json below.
-		const loadedData = await this.loadData();
+		const loadedData = (await this.loadData()) as PluginData;
 
 		// Sync Zustand store with loaded data before any React
 		// component mounts.  After this point, store.settings /
@@ -91,15 +92,15 @@ export default class KeepTheRhythm extends Plugin {
 	}
 
 	private initializeCommands() {
-		this.addRibbonIcon("calendar-days", "Keep the Rhythm", () => {
-			activateSidebarView();
+		this.addRibbonIcon("calendar-days", "Keep the rhythm2", () => {
+			void activateSidebarView();
 		});
 
 		this.addCommand({
 			id: "open-sidebar",
 			name: "Open sidebar view",
 			callback: () => {
-				activateSidebarView();
+				void activateSidebarView();
 			},
 		});
 	}
@@ -112,7 +113,7 @@ export default class KeepTheRhythm extends Plugin {
 		);
 		this.registerEvent(
 			this.app.workspace.on("editor-change", (editor, info) => {
-				events.handleEditorChange(editor, info);
+				void events.handleEditorChange(editor, info);
 			}),
 		);
 		this.registerEvent(
@@ -150,15 +151,16 @@ export default class KeepTheRhythm extends Plugin {
 
 	// #region Unloading
 
-	async onunload() {
+	onunload() {
 		window.removeEventListener("focus", this.onFocusHandler);
 		window.removeEventListener("pagehide", this.onPageHideHandler);
 		document.removeEventListener("visibilitychange", this.onVisibilityHandler);
 
 		// Drain pending editor deltas and persist to data.json before
 		// tearing down the scheduler, so a coalesced debounced save
-		// still lands on disk.
-		await this.flushNow();
+		// still lands on disk.  Obsidian does not await onunload, so the
+		// promise is fire-and-forget here.
+		void this.flushNow();
 
 		// Stop reacting to persist signals.
 		this.persistenceScheduler?.dispose();

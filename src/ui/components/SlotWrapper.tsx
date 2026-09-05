@@ -61,7 +61,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
 
   const handleAddClick = useCallback(() => {
     if (slotsWithUuid && slotsWithUuid.length >= 10) {
-      new Notice("Maximum of 10 slots per view! (at least for now)");
+      new Notice("Maximum of 10 slots per view! (At least for now)");
       return;
     }
     const newSlot: SlotConfig = {
@@ -86,7 +86,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
     <div className="slot__section">
       <TransitionGroup className="slot__list">
         {slotsWithUuid?.map((slot, i) => {
-          const nodeRef = getNodeRef(slot.uuid!);
+          const nodeRef = getNodeRef(slot.uuid);
           return (
             <CSSTransition
               key={slot.uuid}

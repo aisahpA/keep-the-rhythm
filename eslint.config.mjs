@@ -13,7 +13,7 @@ export default defineConfig([
 	...obsidianmd.configs.recommended,
 	{
 		// Node-only build scripts: Obsidian runtime rules don't apply.
-		files: ['rollup.config.mjs', 'version-bump.mjs'],
+		files: ['rollup.config.mjs', 'version-bump.mjs', 'esbuild.config.js'],
 		languageOptions: {
 			globals: { ...globals.node },
 		},
@@ -29,7 +29,7 @@ export default defineConfig([
 				projectService: {
 					allowDefaultProject: [
 						'eslint.config.*',
-						'rollup.config.mjs',
+						'esbuild.config.js',
 						'version-bump.mjs',
 					],
 				},
