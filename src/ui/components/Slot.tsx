@@ -34,7 +34,6 @@ export const Slot = React.memo(function Slot({
 	const unitType = unit;
 
 	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
-	const typeButtonRef = useRef<HTMLButtonElement | null>(null);
 	const calcButtonRef = useRef<HTMLButtonElement | null>(null);
 	const unitButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -83,12 +82,6 @@ export const Slot = React.memo(function Slot({
 		[calcMode],
 	);
 
-	const setTypeButtonIcon = useCallback((el: HTMLButtonElement | null) => {
-		if (!el || el.dataset.iconSet) return;
-		setIcon(el, "list");
-		el.dataset.iconSet = "1";
-	}, []);
-
 	const setUnitButtonIcon = useCallback((el: HTMLButtonElement | null) => {
 		if (!el || el.dataset.iconSet) return;
 		setIcon(el, "case-sensitive");
@@ -124,11 +117,8 @@ export const Slot = React.memo(function Slot({
 		});
 	};
 
-	const toggleSlotType = () => {
-		const currentIndex = TARGET_COUNTS.indexOf(optionType);
-		const nextIndex = (currentIndex + 1) % TARGET_COUNTS.length;
-		const newOption = TARGET_COUNTS[nextIndex];
-
+	const selectType = (event: React.ChangeEvent<HTMLSelectElement>) => {
+		const newOption = event.target.value as TargetCount;
 		mutateSettings((draft) => {
 			draft.sidebarConfig.slots[index].option = newOption;
 		});
@@ -191,16 +181,18 @@ export const Slot = React.memo(function Slot({
 								></button>
 							</Tooltip>
 							<Tooltip content="Change Type">
-								<button
-									className="KTR-min-button"
-									ref={(el) => {
-										typeButtonRef.current = el;
-										setTypeButtonIcon(el);
-									}}
-									onClick={() => {
-										toggleSlotType();
-									}}
-								></button>
+								<select
+									className="KTR-min-select"
+									value={optionType}
+									onChange={selectType}
+									onClick={(e) => e.stopPropagation()}
+								>
+									{TARGET_COUNTS.map((tc) => (
+										<option key={tc} value={tc}>
+											{getSlotLabel(tc)}
+										</option>
+									))}
+								</select>
 							</Tooltip>
 							<Tooltip content="Delete">
 								<button

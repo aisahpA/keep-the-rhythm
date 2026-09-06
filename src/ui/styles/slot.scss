@@ -92,6 +92,22 @@
 	button:last-child {
 		color: var(--text-error);
 	}
+
+	select.KTR-min-select {
+		all: unset;
+		cursor: pointer;
+		color: var(--text-muted);
+		font-size: var(--font-ui-small);
+		text-align: right;
+		max-width: 110px;
+		text-overflow: ellipsis;
+		transition: 200ms ease;
+		transition-property: color;
+
+		&:hover {
+			color: var(--text-normal);
+		}
+	}
 }
 
 .slot__value {
