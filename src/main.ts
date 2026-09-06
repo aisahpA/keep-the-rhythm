@@ -9,7 +9,8 @@ import { TodayWordsStatusBar } from "@/ui/statusBar";
 
 import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
-import { activateSidebarView } from "@/core/commands";
+import { activateSidebarView, insertCustomCodeBlock } from "@/core/commands";
+import { CUSTOM_CODE_BLOCK_COMMANDS } from "@/core/codeBlockTemplates";
 import { snapshotRawDataFile } from "@/core/backup";
 import {
 	setupPersistenceScheduling,
@@ -103,6 +104,16 @@ export default class KeepTheRhythm extends Plugin {
 				void activateSidebarView();
 			},
 		});
+
+		for (const { key, label, id } of CUSTOM_CODE_BLOCK_COMMANDS) {
+			this.addCommand({
+				id,
+				name: `Insert ${label} code block`,
+				editorCallback: (editor) => {
+					insertCustomCodeBlock(key, editor);
+				},
+			});
+		}
 	}
 
 	private initializeEvents() {

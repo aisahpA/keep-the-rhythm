@@ -123,6 +123,14 @@ button.todayEntries__today-button {
   }
 }
 
+.todayEntries__list-item--deleted {
+  .todayEntries__file-path {
+    pointer-events: none;
+    text-decoration: line-through;
+    opacity: 0.3;
+  }
+}
+
 .todayEntries__word-count {
   min-width: fit-content;
   text-wrap: nowrap;
@@ -176,10 +184,6 @@ button.todayEntries__quick-add-save {
   color: var(--text-accent);
 }
 
-// manual entry modal
-.ktr-no-border {
-  //   border-top: none !important;
-}
 
 .ktr-hidden-date-input {
   position: absolute !important;

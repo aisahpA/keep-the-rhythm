@@ -7,13 +7,16 @@ import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
 import { HeatmapCell } from "./HeatmapCell";
 import { compileEvaluator, FilterNode } from "@/core/codeBlockQuery";
 import { useStore } from "@/core/store";
-import { selectTodayVersion, selectHistoricalVersion } from "@/core/dataQueries";
+import { selectTodayVersion, selectHistoricalVersion, countByUnit } from "@/core/dataQueries";
 import { getDailySummaryMap } from "@/utils/dailySummaryCache";
+import { Unit } from "@/defs/types";
+import { setIcon } from "obsidian";
 import { moment as _moment } from "obsidian";
 const moment = _moment as unknown as typeof _moment.default;
 
 interface HeatmapProps {
 	heatmapConfig: HeatmapConfig;
+	preferredUnit?: Unit;
 	fileFilter?: unknown;
 	isCodeBlock?: boolean;
 	onCellClick?: (date: string) => void;
@@ -22,6 +25,7 @@ interface HeatmapProps {
 
 export const Heatmap = ({
 	heatmapConfig,
+	preferredUnit = Unit.WORD,
 	fileFilter,
 	isCodeBlock,
 	onCellClick,
@@ -39,6 +43,21 @@ export const Heatmap = ({
 		hideWeekdayLabels,
 		alignLeft,
 	} = heatmapConfig;
+
+	// Unit displayed by the heatmap: heatmapConfig.unit overrides the
+	// preferred unit passed from the sidebar; both fall back to WORD.
+	const [unit, setUnit] = React.useState<Unit>(
+		heatmapConfig.unit ?? preferredUnit,
+	);
+	React.useEffect(() => {
+		setUnit(heatmapConfig.unit ?? preferredUnit);
+	}, [heatmapConfig.unit, preferredUnit]);
+
+	// Hover states for highlighting heatmap areas by month/weekday label.
+	const [hoveredMonth, setHoveredMonth] = React.useState<number | null>(null);
+	const [hoveredWeekday, setHoveredWeekday] = React.useState<number | null>(
+		null,
+	);
 
 	const baseDate = startDate ? new Date(startDate) : undefined;
 
@@ -86,26 +105,26 @@ export const Heatmap = ({
 	}, [gridKey]);
 
 	// ── Historical data (non-today cells) ──────────────────────
-	// Cached by (historicalVersion, grid, filter) — never invalidated by
-	// todayVersion, so typing today never re-walks historical rows.
+	// Cached by (historicalVersion, grid, filter, unit) — never invalidated
+	// by todayVersion, so typing today never re-walks historical rows.
 	const historicalCellData = useMemo(() => {
-		return buildCellData(cellDates, today, filterState);
-	}, [historicalVersion, gridKey, cellDates, today, filterState]);
+		return buildCellData(cellDates, today, filterState, unit);
+	}, [historicalVersion, gridKey, cellDates, today, filterState, unit]);
 
 	// ── Today's live cell ──────────────────────────────────────
 	// Re-read on every keystroke (todayVersion).
 	const todayCellData = useMemo(() => {
 		if (!filterState) {
 			const fullMap = getDailySummaryMap();
-			return fullMap[today] ?? 0;
+			return countByUnit(fullMap[today] ?? { w: 0, c: 0 }, unit);
 		}
 		const { days } = useStore.getState();
 		const day = days[today];
 		if (!day) return 0;
 		const map: Record<string, number> = {};
-		applyFilter(today, day, filterState, map);
+		applyFilter(today, day, filterState, map, unit);
 		return map[today] ?? 0;
-	}, [todayVersion, today, filterState]);
+	}, [todayVersion, today, filterState, unit]);
 
 	// ── Intensity ──────────────────────────────────────────────
 	const intensityResolver = useMemo(
@@ -115,14 +134,16 @@ export const Heatmap = ({
 
 	// ── Month labels ───────────────────────────────────────────
 	const monthLabels = useMemo(() => {
-		const labels: { month: string; week: number }[] = [];
+		const labels: { month: string; week: number; index: number }[] = [];
 		let lastMonth = -1;
+		let index = 0;
 		for (let week = 0; week < weeksToShow; week++) {
 			const m = moment(getDateForCell(week, 0, weeksToShow, baseDate));
 			const month = m.month();
 			if (month !== lastMonth && m.date() <= 7) {
-				labels.push({ month: monthNames[month], week });
+				labels.push({ month: monthNames[month], week, index });
 				lastMonth = month;
+				index++;
 			}
 		}
 		return labels;
@@ -130,21 +151,46 @@ export const Heatmap = ({
 
 	const squared = !roundCells;
 
+	// Week → month label index lookup for hover highlighting.
+	const monthIndexForWeek = useMemo(() => {
+		const lookup: Record<number, number> = {};
+		for (const label of monthLabels) {
+			lookup[label.week] = label.index;
+		}
+		return lookup;
+	}, [monthLabels]);
+
+	// cellDates is built week-major (week * 7 + day), so array position
+	// yields both indices for hover dimming.
+	const dimmedFor = React.useCallback(
+		(index: number): boolean => {
+			const week = Math.floor(index / 7);
+			const day = index % 7;
+			if (hoveredMonth !== null && monthIndexForWeek[week] !== hoveredMonth) {
+				return true;
+			}
+			if (hoveredWeekday !== null && day !== hoveredWeekday) return true;
+			return false;
+		},
+		[hoveredMonth, hoveredWeekday, monthIndexForWeek],
+	);
+
 	// ── Pre-render historical cells, split at today's position ─
 	const { before, after, hasToday } = useMemo(() => {
 		const before: React.ReactNode[] = [];
 		const after: React.ReactNode[] = [];
 		let hasToday = false;
-		for (const date of cellDates) {
+		cellDates.forEach((date, index) => {
 			if (date === today) {
 				hasToday = true;
-				continue;
+				return;
 			}
 			const count = historicalCellData[date] ?? 0;
 			(hasToday ? after : before).push(
 				<HeatmapCell
 					key={date}
 					count={count}
+					unit={unit}
 					date={date}
 					squared={squared}
 					cellSize={cellSizePx}
@@ -153,11 +199,12 @@ export const Heatmap = ({
 					isToday={false}
 					onCellClick={onCellClick}
 					selected={date === selectedDate}
+					dimmed={dimmedFor(index)}
 				/>,
 			);
-		}
+		});
 		return { before, after, hasToday };
-	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate, cellSizePx]);
+	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate, cellSizePx, unit, dimmedFor]);
 
 	const todayCell = useMemo(() => {
 		if (!hasToday) return null;
@@ -165,6 +212,7 @@ export const Heatmap = ({
 			<HeatmapCell
 				key={today}
 				count={todayCellData}
+				unit={unit}
 				date={today}
 				squared={squared}
 				cellSize={cellSizePx}
@@ -175,7 +223,7 @@ export const Heatmap = ({
 				selected={today === selectedDate}
 			/>
 		);
-	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate, cellSizePx]);
+	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate, cellSizePx, unit]);
 
 	const wrapperClasses = useMemo(
 		() =>
@@ -197,46 +245,74 @@ export const Heatmap = ({
 			disableHoverableContent
 		>
 			{historicalCellData && (
-				<div
-					className={wrapperClasses}
-					style={
-						{ "--cell-size": `${cellSizePx}px` } as React.CSSProperties
-					}
-				>
-					{!hideWeekdayLabels && (
-						<div className="week-day-labels">
-							{weekdaysNames.map((day) => (
-								<div key={day} className="week-day-label">{day}</div>
-							))}
-						</div>
+				<div className="heatmap-container">
+					{!isCodeBlock && (
+						<button
+							className="KTR-min-button heatmap-unit-toggle"
+							aria-label="Change Unit"
+							ref={(el) => {
+								if (el && !el.dataset.iconSet) {
+									setIcon(el, "case-sensitive");
+									el.dataset.iconSet = "1";
+								}
+							}}
+							onClick={() =>
+								setUnit((previous) =>
+									previous === Unit.WORD ? Unit.CHAR : Unit.WORD,
+								)
+							}
+						/>
 					)}
-					<div className="heatmap-content">
-						{!hideMonthLabels && (
-							<div
-								className="month-labels"
-								style={{ gridTemplateColumns: gridCols }}
-							>
-								{monthLabels.map(({ month, week }) => (
+					<div
+						className={wrapperClasses}
+						style={
+							{ "--cell-size": `${cellSizePx}px` } as React.CSSProperties
+						}
+					>
+						{!hideWeekdayLabels && (
+							<div className="week-day-labels">
+								{weekdaysNames.map((day, dayIndex) => (
 									<div
-										key={`${month}-${week}`}
-										className="month-label"
-										style={{ gridColumn: week }}
+										key={day}
+										className="week-day-label"
+										onMouseEnter={() => setHoveredWeekday(dayIndex)}
+										onMouseLeave={() => setHoveredWeekday(null)}
 									>
-										{month}
+										{day}
 									</div>
 								))}
 							</div>
 						)}
-						<div
-							className="heatmap-new-grid"
-							style={{
-								gridTemplateColumns: gridCols,
-								gridTemplateRows: gridRows,
-							}}
-						>
-							{before}
-							{hasToday && todayCell}
-							{after}
+						<div className="heatmap-content">
+							{!hideMonthLabels && (
+								<div
+									className="month-labels"
+									style={{ gridTemplateColumns: gridCols }}
+								>
+									{monthLabels.map(({ month, week, index }) => (
+										<div
+											key={`${month}-${week}`}
+											className="month-label"
+											style={{ gridColumn: week }}
+											onMouseEnter={() => setHoveredMonth(index)}
+											onMouseLeave={() => setHoveredMonth(null)}
+										>
+											{month}
+										</div>
+									))}
+								</div>
+							)}
+							<div
+								className="heatmap-new-grid"
+								style={{
+									gridTemplateColumns: gridCols,
+									gridTemplateRows: gridRows,
+								}}
+							>
+								{before}
+								{hasToday && todayCell}
+								{after}
+							</div>
 						</div>
 					</div>
 				</div>
@@ -268,6 +344,7 @@ function buildCellData(
 	cellDates: string[],
 	today: string,
 	filter: FilterState,
+	unit: Unit,
 ): Record<string, number> {
 	const map: Record<string, number> = {};
 
@@ -275,14 +352,14 @@ function buildCellData(
 		const fullMap = getDailySummaryMap();
 		for (const date of cellDates) {
 			if (date === today) continue;
-			map[date] = fullMap[date] ?? 0;
+			map[date] = countByUnit(fullMap[date] ?? { w: 0, c: 0 }, unit);
 		}
 	} else {
 		const { days } = useStore.getState();
 		for (const date of cellDates) {
 			if (date === today) continue;
 			const day = days[date];
-			if (day) applyFilter(date, day, filter, map);
+			if (day) applyFilter(date, day, filter, map, unit);
 		}
 	}
 
@@ -294,14 +371,20 @@ function applyFilter(
 	day: DayActivityMap,
 	filter: Exclude<FilterState, null>,
 	map: Record<string, number>,
+	unit: Unit,
 ): void {
-	for (const [filePath, wordsAdded] of Object.entries(day)) {
+	for (const [filePath, counts] of Object.entries(day)) {
 		const matches =
 			filter.kind === "prefix"
 				? filePath.startsWith(filter.prefix)
-				: filter.evaluator({ date, filePath, wordsAdded });
+				: filter.evaluator({
+						date,
+						filePath,
+						wordsAdded: counts.w,
+						charsAdded: counts.c,
+					});
 		if (matches) {
-			map[date] = (map[date] ?? 0) + wordsAdded;
+			map[date] = (map[date] ?? 0) + countByUnit(counts, unit);
 		}
 	}
 }

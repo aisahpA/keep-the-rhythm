@@ -9,7 +9,7 @@ import { getDailySummaryMap } from "@/utils/dailySummaryCache";
 import { CalculationType } from "@/defs/types";
 import { Tooltip } from "./Tooltip";
 import { getSlotLabel, weekdaysNames } from "../texts";
-import { TargetCount, SlotConfig } from "@/defs/types";
+import { TargetCount, SlotConfig, Unit } from "@/defs/types";
 import { useStore } from "@/core/store";
 
 const TARGET_COUNTS = Object.values(TargetCount);
@@ -17,6 +17,7 @@ const TARGET_COUNTS = Object.values(TargetCount);
 export const Slot = React.memo(function Slot({
 	index,
 	option,
+	unit,
 	calc,
 	onDelete,
 	isCodeBlock,
@@ -30,10 +31,12 @@ export const Slot = React.memo(function Slot({
 	// mutated externally (e.g. by another codeBlock).
 	const optionType = option;
 	const calcMode = calc;
+	const unitType = unit;
 
 	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
 	const typeButtonRef = useRef<HTMLButtonElement | null>(null);
 	const calcButtonRef = useRef<HTMLButtonElement | null>(null);
+	const unitButtonRef = useRef<HTMLButtonElement | null>(null);
 
 	// Reactive slices of the store the slot's value depends on.  Each
 	// selector re-renders the component only when that slice changes,
@@ -49,15 +52,15 @@ export const Slot = React.memo(function Slot({
 	// Using version numbers instead of the dailyActivity array reference
 	// avoids unnecessary recomputation when only unrelated entries change.
 	const value = useMemo(
-		() => getCurrentCount(optionType, calcMode),
-		[optionType, calcMode, todayVersion, historicalVersion, dailyWritingGoal],
+		() => getCurrentCount(optionType, calcMode, unitType),
+		[optionType, calcMode, unitType, todayVersion, historicalVersion, dailyWritingGoal],
 	);
 
 	const unitText = () => {
 		if (optionType === TargetCount.CURRENT_STREAK) {
 			return "days";
 		} else {
-			return "words";
+			return unitType === Unit.CHAR ? "chars" : "words";
 		}
 	};
 
@@ -86,6 +89,12 @@ export const Slot = React.memo(function Slot({
 		el.dataset.iconSet = "1";
 	}, []);
 
+	const setUnitButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (!el || el.dataset.iconSet) return;
+		setIcon(el, "case-sensitive");
+		el.dataset.iconSet = "1";
+	}, []);
+
 	const setDeleteButtonIcon = useCallback(
 		(el: HTMLButtonElement | null) => {
 			if (!el || el.dataset.iconSet) return;
@@ -105,6 +114,13 @@ export const Slot = React.memo(function Slot({
 		// the store + saves to data.json, replacing plugin.quietSave()).
 		mutateSettings((draft) => {
 			draft.sidebarConfig.slots[index].calc = newCalc;
+		});
+	};
+
+	const toggleUnit = () => {
+		const newUnit: Unit = unitType === Unit.WORD ? Unit.CHAR : Unit.WORD;
+		mutateSettings((draft) => {
+			draft.sidebarConfig.slots[index].unit = newUnit;
 		});
 	};
 
@@ -131,7 +147,7 @@ export const Slot = React.memo(function Slot({
 		if (optionType !== TargetCount.CURRENT_WEEK) return [];
 		const map = getDailySummaryMap();
 		const weekDates = getCurrentWeekDates();
-		return weekDates.map((date) => (map[date] ?? 0) >= dailyWritingGoal);
+		return weekDates.map((date) => (map[date]?.w ?? 0) >= dailyWritingGoal);
 	}, [optionType, todayVersion, historicalVersion, dailyWritingGoal]);
 
 	return (
@@ -162,6 +178,18 @@ export const Slot = React.memo(function Slot({
 								</Tooltip>
 							)}
 
+							<Tooltip content="Change Unit">
+								<button
+									className="KTR-min-button"
+									ref={(el) => {
+										unitButtonRef.current = el;
+										setUnitButtonIcon(el);
+									}}
+									onClick={() => {
+										toggleUnit();
+									}}
+								></button>
+							</Tooltip>
 							<Tooltip content="Change Type">
 								<button
 									className="KTR-min-button"
@@ -199,10 +227,10 @@ export const Slot = React.memo(function Slot({
 					</span>
 				</div>
 			</div>
-			{optionType === TargetCount.CURRENT_DAY && (
+			{optionType === TargetCount.CURRENT_DAY && unitType !== Unit.CHAR && (
 				<div className="today-progress-bar">
 					<div
-						className="progress"
+						className={`progress ${progressValue === 100 ? "completed" : ""}`}
 						style={{
 							width: progressValue + "%",
 						}}

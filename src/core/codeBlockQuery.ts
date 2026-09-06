@@ -1,10 +1,11 @@
-import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
+import { HeatmapColorModes, HeatmapConfig, Unit } from "@/defs/types";
 import jsep from "jsep";
 import { ActivityRecord } from "@/defs/types";
 import {
 	isValidCalculationType,
 	isValidTargetCount,
 	isValidColoringMode,
+	isValidUnit,
 } from "@/utils/utils";
 import { SlotConfig, CalculationType } from "@/defs/types";
 import { useStore } from "./store";
@@ -63,12 +64,17 @@ export function parseSlotQuery(query: string): SlotConfig[] {
 		const parts = arrayOfLines[i].replace(/ /g, "").split(",");
 
 		let type = parts[0];
+		let unit = useStore.getState().settings.preferredUnit ?? Unit.WORD;
 		let calc = CalculationType.TOTAL;
 
 		if (!isValidTargetCount(type)) {
 			console.error("Invalid Type on Slots Codeblock: ", type);
 			continue;
 			// deveria mostrar o erro no codeblock mesmo, mas nao sei fazer isso ainda
+		}
+
+		if (parts[1] && isValidUnit(parts[1])) {
+			unit = parts[1];
 		}
 
 		if (parts[2] && isValidCalculationType(parts[2])) {
@@ -78,6 +84,7 @@ export function parseSlotQuery(query: string): SlotConfig[] {
 		slots.push({
 			index: i,
 			option: type,
+			unit,
 			calc: (calc) ?? CalculationType.TOTAL,
 		});
 	}
@@ -187,6 +194,11 @@ function buildOptionsConfig(optionsText: string): HeatmapConfig {
 				break;
 			case "CELL_SIZE":
 				config.cellSize = Number(details) || 10;
+				break;
+			case "UNIT":
+				if (details && isValidUnit(details.trim())) {
+					config.unit = details.trim() as Unit;
+				}
 				break;
 		}
 	}

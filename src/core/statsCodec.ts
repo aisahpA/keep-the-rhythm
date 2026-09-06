@@ -1,4 +1,5 @@
 import {
+	ActivityCounts,
 	DayActivityMap,
 	DaysMap,
 	LegacyActivityData,
@@ -91,7 +92,10 @@ function buildIdToPath(fileDict: PersistedFileDict): string[] {
 function legacyRowsToDays(rows: LegacyActivityData[] | undefined): DaysMap {
 	const days: DaysMap = {};
 	for (const r of rows ?? []) {
-		(days[r.date] ??= {})[r.filePath] = r.wordsAdded;
+		// Legacy rows carry only a word delta; char counts can't be
+		// reconstructed, so they start at the word value's length shadow:
+		// a 0-char history keeps char mode honest (no invented data).
+		(days[r.date] ??= {})[r.filePath] = { w: r.wordsAdded, c: 0 };
 	}
 	return days;
 }
@@ -106,8 +110,8 @@ export function collectActiveFiles(days: DaysMap): Set<string> {
 
 function encodeDayMap(
 	day: DayActivityMap,
-): Record<string, number> {
-	const encoded: Record<string, number> = {};
+): Record<string, ActivityCounts> {
+	const encoded: Record<string, ActivityCounts> = {};
 	for (const [path, val] of Object.entries(day)) {
 		const id = cachedFileDict[path];
 		if (id !== undefined) encoded[String(id)] = val;
@@ -118,15 +122,24 @@ function encodeDayMap(
 /**
  * Decode a single dictionary-encoded day map (id → value) back to
  * (path → value) using the given id→path array.
+ *
+ * Values persisted before the {w,c} format were plain numbers (word deltas).
+ * Those are upgraded to `{ w, c: 0 }` so existing data keeps its word
+ * history while char mode starts empty (no invented data).
  */
 function decodeDayMap(
-	encoded: Record<string, number>,
+	encoded: Record<string, number | ActivityCounts>,
 	idToPath: string[],
 ): DayActivityMap {
 	const day: DayActivityMap = {};
 	for (const [idStr, val] of Object.entries(encoded)) {
 		const path = idToPath[Number(idStr)];
-		if (path !== undefined) day[path] = val;
+		if (path !== undefined) {
+			day[path] =
+				typeof val === "number"
+					? { w: val, c: 0 }
+					: { w: val.w ?? 0, c: val.c ?? 0 };
+		}
 	}
 	return day;
 }
@@ -139,10 +152,10 @@ function decodeDayMap(
  */
 function encodeDay(
 	day: DayActivityMap,
-): Record<string, number> {
+): Record<string, ActivityCounts> {
 	const kept: DayActivityMap = {};
 	for (const [filePath, added] of Object.entries(day)) {
-		if (added !== 0) {
+		if (added.w !== 0 || added.c !== 0) {
 			kept[filePath] = added;
 			if (!(filePath in cachedFileDict)) {
 				cachedFileDict[filePath] = cachedNextId++;
@@ -230,8 +243,18 @@ function decodeBaselines(
 ): { todayBaselines: DayActivityMap; todayBaselinesDay: string | null } {
 	const persisted = stats?.todayBaselines;
 	if (persisted?.day === today && persisted.baselines && hasFileDict(stats)) {
+		const day: DayActivityMap = {};
+		for (const [idStr, val] of Object.entries(persisted.baselines)) {
+			const path = buildIdToPath(stats.fileDict)[Number(idStr)];
+			if (path !== undefined) {
+				day[path] =
+					typeof val === "number"
+						? { w: val, c: 0 }
+						: { w: val.w ?? 0, c: val.c ?? 0 };
+			}
+		}
 		return {
-			todayBaselines: decodeDayMap(persisted.baselines, buildIdToPath(stats.fileDict)),
+			todayBaselines: day,
 			todayBaselinesDay: today,
 		};
 	}
@@ -239,7 +262,12 @@ function decodeBaselines(
 	if (stats?.dailyActivity) {
 		const todayBaselines: DayActivityMap = {};
 		for (const r of stats.dailyActivity) {
-			if (r.date === today) todayBaselines[r.filePath] = r.wordCountStart;
+			if (r.date === today) {
+				todayBaselines[r.filePath] = {
+					w: r.wordCountStart,
+					c: 0,
+				};
+			}
 		}
 		return {
 			todayBaselines,

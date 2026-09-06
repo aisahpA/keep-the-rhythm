@@ -6,7 +6,7 @@ import {
 	MarkdownView,
 	type MarkdownFileInfo,
 } from "obsidian";
-import { getLanguageBasedWordCount } from "@/core/wordCounting";
+import { getCountsFromContent } from "@/core/baselines";
 import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
 import { computeLiveDelta, isFileLive } from "@/core/baselines";
 import { isPathTracked } from "./pathFilter";
@@ -110,26 +110,27 @@ async function runPendingEditorChange(): Promise<void> {
 
 	try {
 		const cur = store();
-		const newWordCount = getLanguageBasedWordCount(
-			editor.getValue(),
-			cur.settings?.enabledLanguages,
-		);
+		const newCounts = getCountsFromContent(editor.getValue());
 
-		const delta = computeLiveDelta(filePath, newWordCount);
+		const delta = computeLiveDelta(filePath, newCounts);
 		if (delta === undefined) return;
 
-		const currentAdded = cur.days[cur.today]?.[filePath] ?? 0;
+		const currentAdded = cur.days[cur.today]?.[filePath];
 		// Live-delta semantics: the stored value tracks the editor's
 		// current position relative to today's baseline — it can go
 		// negative when the file shrinks below the morning snapshot, so
 		// deletions stay visible instead of freezing the number.  A zero
 		// delta removes the row (back at baseline == no net words today),
 		// keeping the day map free of 0-word litter.
-		if (delta === 0) {
-			if (currentAdded !== 0) {
+		if (delta.w === 0 && delta.c === 0) {
+			if (currentAdded) {
 				cur.deleteActivity(cur.today, filePath);
 			}
-		} else if (delta !== currentAdded) {
+		} else if (
+			!currentAdded ||
+			currentAdded.w !== delta.w ||
+			currentAdded.c !== delta.c
+		) {
 			cur.upsertAdded(cur.today, filePath, delta);
 		}
 	} catch (error) {
@@ -143,6 +144,9 @@ export function handleFileDelete(file: TFile) {
 	}
 	try {
 		const st = store();
+		// When "ignore deleted files" is on, deleting a file must not
+		// subtract its words/chars from the day's totals — the row is kept.
+		if (st.settings.ignoreDeletedFiles) return;
 		st.deleteActivity(st.today, file.path);
 	} catch (error) {
 		console.error(`KTR failed deleting ${file.path} | ${error}`);

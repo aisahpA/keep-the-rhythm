@@ -1,6 +1,6 @@
 import { getLeafWithFile } from "../../utils/utils";
 import React, { useMemo } from "react";
-import { HeatmapColorModes } from "../../defs/types";
+import { HeatmapColorModes, Unit } from "../../defs/types";
 import * as obsidian from "obsidian";
 import { Tooltip } from "./Tooltip";
 import { getCorePluginSettings } from "../../utils/windowUtility";
@@ -12,11 +12,14 @@ const moment = _moment as unknown as typeof _moment.default;
 interface HeatmapCellProps {
 	intensity: number;
 	count: number;
+	unit?: Unit;
 	date: string;
 	mode: HeatmapColorModes;
 	squared?: boolean;
 	cellSize?: number;
 	isToday: boolean;
+	/** True when another month/weekday is hovered — dims non-matching cells. */
+	dimmed?: boolean;
 	/**
 	 * When provided, clicking the cell reports the date instead of opening
 	 * the day's daily note (used by the sidebar to drive the Entries list).
@@ -35,11 +38,13 @@ interface HeatmapCellProps {
 export const HeatmapCell = React.memo(function HeatmapCell({
 	intensity,
 	count,
+	unit = Unit.WORD,
 	date,
 	mode,
 	squared,
 	cellSize,
 	isToday,
+	dimmed,
 	onCellClick,
 	selected,
 }: HeatmapCellProps) {
@@ -105,7 +110,9 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 
 	const isSquaredClass = squared ? "cell-squared" : "cell-rounded";
 
-	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${isSelectedClass} ${intensityClass}`;
+	const isDimmedClass = dimmed ? "heatmap-square-dimmed" : "";
+
+	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${isSelectedClass} ${isDimmedClass} ${intensityClass}`;
 
 	const style = {
 		"--intensity": `${intensity}%`,
@@ -113,14 +120,18 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 		height: cellSize,
 	} as React.CSSProperties & Record<string, string | number>;
 
+	const unitLabel = unit === Unit.CHAR ? "chars" : "words";
+
 	const tooltipContent = useMemo(
 		() => (
 			<>
 				<strong>{date}</strong>
-				<div>{count.toLocaleString()} words</div>
+				<div>
+					{count.toLocaleString()} {unitLabel}
+				</div>
 			</>
 		),
-		[date, count],
+		[date, count, unitLabel],
 	);
 
 	return (

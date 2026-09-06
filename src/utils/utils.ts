@@ -1,4 +1,4 @@
-import { HeatmapColorModes } from "../defs/types";
+import { HeatmapColorModes, Unit } from "../defs/types";
 import { CalculationType, TargetCount } from "../defs/types";
 import { App } from "obsidian";
 import { TFile } from "obsidian";
@@ -39,6 +39,10 @@ export function isValidCalculationType(
 	value: string,
 ): value is CalculationType {
 	return Object.values(CalculationType).includes(value as CalculationType);
+}
+
+export function isValidUnit(value: string): value is Unit {
+	return Object.values(Unit).includes(value as Unit);
 }
 
 export function isValidColoringMode(value: string): value is HeatmapColorModes {

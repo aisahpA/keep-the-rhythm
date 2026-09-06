@@ -1,7 +1,8 @@
 import { TFile, MarkdownView } from "obsidian";
-import { getLanguageBasedWordCount } from "@/core/wordCounting";
+import { getLanguageBasedWordCount, getCharCount } from "@/core/wordCounting";
 import { getPlugin } from "@/core/pluginRegistry";
 import { useStore } from "./store";
+import { ActivityCounts } from "@/defs/types";
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Baseline maintenance — the home of today's baseline rules.
@@ -29,7 +30,7 @@ import { useStore } from "./store";
  * ────────────────────────────────────────────────────────────────────── */
 
 /** Today's recorded baseline for a file, or undefined when not yet touched today. */
-export function getBaseline(filePath: string): number | undefined {
+export function getBaseline(filePath: string): ActivityCounts | undefined {
 	return useStore.getState().todayBaselines[filePath];
 }
 
@@ -43,8 +44,8 @@ export function isFileLive(filePath: string): boolean {
  * Word-count sources
  * ────────────────────────────────────────────────────────────────────── */
 
-/** Read the file's current word count (cachedRead with read fallback). */
-export async function getWordCountForFile(file: TFile): Promise<number> {
+/** Read the file's current word+char count (cachedRead with read fallback). */
+export async function getCountsForFile(file: TFile): Promise<ActivityCounts> {
 	const plugin = getPlugin();
 	let content = await plugin.app.vault.cachedRead(file);
 	// cachedRead returns Promise<string> — never null per the type
@@ -54,19 +55,29 @@ export async function getWordCountForFile(file: TFile): Promise<number> {
 	if (!content) {
 		content = await plugin.app.vault.read(file);
 	}
-	return getLanguageBasedWordCount(
-		content,
-		useStore.getState().settings.enabledLanguages,
-	);
+	return getCountsFromContent(content);
+}
+
+/** Word + char counts for a content string, honoring ignore settings. */
+export function getCountsFromContent(content: string): ActivityCounts {
+	const settings = useStore.getState().settings;
+	return {
+		w: getLanguageBasedWordCount(
+			content,
+			settings.enabledLanguages,
+			settings,
+		),
+		c: getCharCount(content, settings),
+	};
 }
 
 /**
- * Word count preferring the live editor buffer over disk: rewriting a
+ * Word + char counts preferring the live editor buffer over disk: rewriting a
  * today baseline would otherwise race unsaved edits (the change event has
  * already fired), baking a permanent offset into the day's delta.  Falls
  * back to the cached disk read when the file isn't open anywhere.
  */
-export async function getCurrentWordCountLive(file: TFile): Promise<number> {
+export async function getCurrentCountsLive(file: TFile): Promise<ActivityCounts> {
 	const app = getPlugin().app;
 	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
 		if (
@@ -74,13 +85,10 @@ export async function getCurrentWordCountLive(file: TFile): Promise<number> {
 			leaf.view.file?.path === file.path &&
 			leaf.view.editor
 		) {
-			return getLanguageBasedWordCount(
-				leaf.view.editor.getValue(),
-				useStore.getState().settings.enabledLanguages,
-			);
+			return getCountsFromContent(leaf.view.editor.getValue());
 		}
 	}
-	return getWordCountForFile(file);
+	return getCountsForFile(file);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -94,10 +102,10 @@ export async function getCurrentWordCountLive(file: TFile): Promise<number> {
  * midnight).  Returns the baseline.  The disk read is deliberate: the
  * editor snapshot is unreliable at this moment (see module header).
  */
-export async function ensureBaseline(file: TFile): Promise<number> {
+export async function ensureBaseline(file: TFile): Promise<ActivityCounts> {
 	const existing = getBaseline(file.path);
 	if (existing !== undefined) return existing;
-	const baseline = await getWordCountForFile(file);
+	const baseline = await getCountsForFile(file);
 	useStore.getState().setBaseline(file.path, baseline);
 	return baseline;
 }
@@ -111,11 +119,13 @@ export async function ensureBaseline(file: TFile): Promise<number> {
 export async function setBaselineFromManualEntry(
 	file: TFile,
 	wordAdded: number,
+	charAdded: number,
 ): Promise<void> {
-	const currentWordCount = await getCurrentWordCountLive(file);
-	useStore
-		.getState()
-		.setBaseline(file.path, Math.max(0, currentWordCount - wordAdded));
+	const current = await getCurrentCountsLive(file);
+	useStore.getState().setBaseline(file.path, {
+		w: Math.max(0, current.w - wordAdded),
+		c: Math.max(0, current.c - charAdded),
+	});
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -123,7 +133,7 @@ export async function setBaselineFromManualEntry(
  * ────────────────────────────────────────────────────────────────────── */
 
 /**
- * Live delta = editor count − baseline.  Returns undefined when the file
+ * Live delta = editor counts − baseline.  Returns undefined when the file
  * has no baseline — sampling cannot run then.  Not an expected steady
  * state (liveness is ensured before sampling), so the missing-baseline
  * case is logged: "no number ever appears" can mean THIS (a tracking bug /
@@ -131,8 +141,8 @@ export async function setBaselineFromManualEntry(
  */
 export function computeLiveDelta(
 	filePath: string,
-	editorCount: number,
-): number | undefined {
+	editorCounts: ActivityCounts,
+): ActivityCounts | undefined {
 	const baseline = getBaseline(filePath);
 	if (baseline === undefined) {
 		console.warn(
@@ -143,5 +153,8 @@ export function computeLiveDelta(
 		);
 		return undefined;
 	}
-	return editorCount - baseline;
+	return {
+		w: editorCounts.w - baseline.w,
+		c: editorCounts.c - baseline.c,
+	};
 }

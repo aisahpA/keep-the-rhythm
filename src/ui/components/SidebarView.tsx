@@ -9,6 +9,7 @@ export const KTRView = () => {
   // about.  Zustand's default Object.is equality means the component only
   // re-renders when the selected value actually changes.
   const heatmapConfig = useStore((s) => s.settings.heatmapConfig);
+  const preferredUnit = useStore((s) => s.settings.preferredUnit);
   const showHeatmap = useStore(
     (s) => s.settings.sidebarConfig.visibility.showHeatmap,
   );
@@ -47,12 +48,17 @@ export const KTRView = () => {
       {showHeatmap && (
         <Heatmap
           heatmapConfig={heatmapConfig}
+          preferredUnit={preferredUnit}
           onCellClick={handleCellClick}
           selectedDate={sidebarDate}
         />
       )}
       {showEntries && (
-        <Entries date={sidebarDate} onDateChange={setSidebarDate} />
+        <Entries
+          date={sidebarDate}
+          preferredUnit={preferredUnit}
+          onDateChange={setSidebarDate}
+        />
       )}
     </div>
   );

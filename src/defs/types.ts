@@ -1,3 +1,18 @@
+export enum Unit {
+	WORD = "WORD",
+	CHAR = "CHAR",
+}
+
+/**
+ * The two counts tracked per (date, filePath): words added and characters
+ * added that day.  Stored together so both the word and char views of any
+ * day are available without a second scan.
+ */
+export interface ActivityCounts {
+	w: number;
+	c: number;
+}
+
 /**
  * Virtual activity row: the "object-shaped" view of a (date, filePath)
  * activity entry used by the UI and the codeblock query engine.  It is
@@ -8,12 +23,13 @@ export interface ActivityRecord {
 	date: string;
 	filePath: string;
 	wordsAdded: number;
+	charsAdded: number;
 }
 
 /**
- * One day's activity in memory/on disk: filePath -> words added that day.
+ * One day's activity in memory/on disk: filePath -> counts added that day.
  */
-export type DayActivityMap = Record<string, number>;
+export type DayActivityMap = Record<string, ActivityCounts>;
 
 /**
  * All activity days keyed by date (docs: today included).  The date's map
@@ -28,10 +44,10 @@ export type DaysMap = Record<string, DayActivityMap>;
  * Keys are numeric string IDs (JSON object keys are always strings)
  * mapped to real file paths via PersistedFileDict.
  *
- *   persisted:  { "0": 500, "1": 300, ... }
- *   runtime:    { "Notes/a.md": 500, "Notes/b.md": 300, ... }
+ *   persisted:  { "0": {"w":500,"c":2000}, "1": {"w":300,"c":1200}, ... }
+ *   runtime:    { "Notes/a.md": {"w":500,"c":2000}, ... }
  */
-export type PersistedDayActivityMap = Record<string, number>;
+export type PersistedDayActivityMap = Record<string, ActivityCounts>;
 
 /** Dictionary-encoded variant of DaysMap used on disk only. */
 export type PersistedDaysMap = Record<string, PersistedDayActivityMap>;
@@ -54,8 +70,8 @@ export type PersistedFileDict = Record<string, number>;
 export interface PersistedBaselines {
 	/** Date the baselines were recorded. */
 	day: string;
-	/** filePath -> initial word count of the file for that day. */
-	baselines: Record<string, number>;
+	/** filePath -> initial word/char count of the file for that day. */
+	baselines: Record<string, ActivityCounts>;
 }
 
 /**
@@ -125,6 +141,8 @@ export enum HeatmapColorModes {
 
 export interface Settings {
 	dailyWritingGoal: number;
+	/** Default unit used when displaying counts (words or characters). */
+	preferredUnit: Unit;
 	/**
 	 * Debounce delay for sampling editor content on keystroke, in seconds.
 	 * After the user stops typing for this long, the current editor state
@@ -132,6 +150,12 @@ export interface Settings {
 	 */
 	editorChangeSampleDelay: number;
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
+	/** Skip Obsidian comments (%% ... %%) when counting words/chars. */
+	ignoreComments: boolean;
+	/** Skip task lines (`- [ ] ...`) when counting words/chars. */
+	ignoreTasks: boolean;
+	/** Deleting a file won't subtract its words/chars from the daily total. */
+	ignoreDeletedFiles: boolean;
 	/**
 	 * Optional list of folder path prefixes. When non-empty, only files whose
 	 * path equals one of these prefixes or starts with `<prefix>/` are
@@ -165,6 +189,7 @@ export interface Settings {
 export interface SlotConfig {
 	index: number;
 	option: TargetCount;
+	unit: Unit;
 	calc: CalculationType;
 }
 
@@ -201,6 +226,8 @@ export interface PluginData {
 
 
 export interface HeatmapConfig {
+	/** Unit displayed by the heatmap (defaults to preferredUnit). */
+	unit?: Unit;
 	numberOfWeeks?: number;
 	cellSize?: number;
 	intensityMode: HeatmapColorModes;
@@ -222,7 +249,11 @@ export interface HeatmapConfig {
 export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
+	preferredUnit: Unit.WORD,
 	editorChangeSampleDelay: 2,
+	ignoreComments: false,
+	ignoreTasks: false,
+	ignoreDeletedFiles: false,
 	trackedFolders: [],
 	startOfTheWeek: "SUNDAY",
 	heatmapNavigation: true,
@@ -266,16 +297,19 @@ export const DEFAULT_SETTINGS: Settings = {
 			{
 				index: 0,
 				option: TargetCount.CURRENT_DAY,
+				unit: Unit.WORD,
 				calc: CalculationType.TOTAL,
 			},
 			{
 				index: 1,
 				option: TargetCount.CURRENT_WEEK,
+				unit: Unit.WORD,
 				calc: CalculationType.TOTAL,
 			},
 			{
 				index: 2,
 				option: TargetCount.LAST_MONTH,
+				unit: Unit.WORD,
 				calc: CalculationType.AVG,
 			},
 		],
@@ -289,3 +323,61 @@ export const DEFAULT_SETTINGS: Settings = {
 		enabled: true,
 	},
 };
+
+/**
+ * Backfill settings loaded from disk (which may predate newer fields) with
+ * the current defaults.  A shallow spread is enough for scalar settings;
+ * the nested `slots` array is normalized field-by-field so an older saved
+ * slot without a `unit` still gets one.
+ */
+export function normalizeSettings(
+	saved: Partial<Settings> | undefined,
+): Settings {
+	const merged: Settings = { ...DEFAULT_SETTINGS, ...saved };
+
+	if (saved?.heatmapConfig) {
+		merged.heatmapConfig = {
+			...DEFAULT_SETTINGS.heatmapConfig,
+			...saved.heatmapConfig,
+			intensityStops: {
+				...DEFAULT_SETTINGS.heatmapConfig.intensityStops,
+				...(saved.heatmapConfig.intensityStops ?? {}),
+			},
+			colors:
+				saved.heatmapConfig.colors ??
+				DEFAULT_SETTINGS.heatmapConfig.colors,
+		};
+	}
+
+	if (saved?.sidebarConfig) {
+		merged.sidebarConfig = {
+			...DEFAULT_SETTINGS.sidebarConfig,
+			...saved.sidebarConfig,
+			visibility: {
+				...DEFAULT_SETTINGS.sidebarConfig.visibility,
+				...saved.sidebarConfig.visibility,
+			},
+		};
+		merged.sidebarConfig.slots = (saved.sidebarConfig.slots ?? []).map(
+			(slot, index) => ({
+				...DEFAULT_SETTINGS.sidebarConfig.slots[0],
+				...slot,
+				unit: slot.unit ?? DEFAULT_SETTINGS.preferredUnit,
+				index,
+			}),
+		);
+	}
+
+	if (saved?.backupConfig) {
+		merged.backupConfig = {
+			...DEFAULT_SETTINGS.backupConfig,
+			...saved.backupConfig,
+		};
+	}
+
+	if (saved?.statusBar) {
+		merged.statusBar = { ...DEFAULT_SETTINGS.statusBar, ...saved.statusBar };
+	}
+
+	return merged;
+}

@@ -225,6 +225,7 @@
 
 .heatmap-content {
   overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -270,8 +271,9 @@
 .month-labels {
   align-items: end;
   display: grid;
-  width: fit-content;
+  width: max-content;
   position: absolute;
+  right: 2px;
   // TODO: number of columns here otherwsie month labels dont work with varialbe weeks number
   // grid-template-columns: repeat(52, 10px);
   gap: 2px;
@@ -304,6 +306,65 @@
   grid-auto-flow: column;
   padding-top: 18px;
   gap: 2px;
+  /* Keep the box at its natural width: an overflowing grid is then
+     right-aligned (flex-end) and spills left, so overflow: hidden
+     clips the old dates and the recent ones stay visible. */
+  width: max-content;
+}
+
+.heatmap-container {
+  position: relative;
+  /* Full width of the real container, so .heatmap-wrapper's
+     max-width: 100% clamps to the sidebar/editor instead of to this
+     box's fit-content (which floors at the full grid width). */
+  width: 100%;
+}
+
+.heatmap-unit-toggle {
+  position: absolute;
+  transform: translateY(calc(100% - 2px));
+  outline: 2px solid var(--background-primary) !important;
+  bottom: 0px;
+  right: 8px;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 200ms ease,
+    scale 200ms ease;
+  cursor: pointer;
+  padding: var(--size-4-1) var(--size-4-1);
+
+  background-color: var(--background-secondary) !important;
+  border-radius: 0 0 6px 6px;
+  width: 32px;
+
+  &::before {
+    $extra-target-area: 16px;
+    content: "";
+    width: calc(100% + $extra-target-area);
+    height: calc(100% + $extra-target-area);
+    position: absolute;
+    z-index: -1;
+  }
+
+  &:active {
+    scale: 0.9;
+    background-color: var(--background-primary-alt) !important;
+  }
+
+  &:focus {
+    outline: unset !important;
+  }
+}
+
+.heatmap-container:hover .heatmap-unit-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.heatmap-square-dimmed {
+  opacity: 0.25;
 }
 
 

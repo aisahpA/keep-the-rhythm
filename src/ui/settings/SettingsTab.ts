@@ -45,10 +45,43 @@ export class SettingsTab extends PluginSettingTab {
         heading: "General",
         items: [
           {
+            name: "Preferred Unit",
+            desc: "Default unit used when displaying counts.",
+            control: {
+              type: "dropdown",
+              key: "preferredUnit",
+              options: { WORD: "Words", CHAR: "Characters" },
+            },
+          },
+          {
             name: "Enabled Languages",
             desc: "Select which writing systems to count.",
             render: (s: Setting) => {
               createLanguageDropdown(s);
+            },
+          },
+          {
+            name: "Ignore Comments",
+            desc: "Obsidian comments (%% ... %%) are excluded from word and char counts.",
+            control: {
+              type: "toggle",
+              key: "ignoreComments",
+            },
+          },
+          {
+            name: "Ignore Tasks",
+            desc: 'Task lines like "- [ ] buy milk" won\'t be counted at all. Checkbox syntax is always excluded regardless of this setting. Changing this won\'t retroactively update your history.',
+            control: {
+              type: "toggle",
+              key: "ignoreTasks",
+            },
+          },
+          {
+            name: "Ignore Deleted Files",
+            desc: "Deleting a file won't subtract its words and characters from your daily totals.",
+            control: {
+              type: "toggle",
+              key: "ignoreDeletedFiles",
             },
           },
           {

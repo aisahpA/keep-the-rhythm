@@ -14,17 +14,20 @@ import { getPlugin } from "@/core/pluginRegistry";
 import { FileView, Notice, setIcon } from "obsidian";
 import { FileSuggest } from "./FileSuggest";
 import { EntryFilter } from "@/core/codeBlocks";
-import { ActivityRecord } from "@/defs/types";
+import { ActivityRecord, Unit } from "@/defs/types";
 import { ConfirmationModal } from "@/ui/settings/ConfirmationModal";
 
 interface EntriesProps {
 	date?: string;
 	filters?: EntryFilter[];
+	preferredUnit?: Unit;
 	onDateChange?: (date: string) => void;
 }
 
 interface EntryRowProps {
 	entry: ActivityRecord;
+	unit: Unit;
+	isDeleted?: boolean;
 	onOpenFile: (filePath: string) => void;
 	onDelete: (filePath: string) => void;
 	onUpdate: (filePath: string, value: number) => void;
@@ -39,6 +42,8 @@ interface EntryRowProps {
  */
 const EntryRow = React.memo(function EntryRow({
 	entry,
+	unit,
+	isDeleted,
 	onOpenFile,
 	onDelete,
 	onUpdate,
@@ -98,7 +103,8 @@ const EntryRow = React.memo(function EntryRow({
 		[editValue, onDelete, onUpdate, entry.filePath],
 	);
 
-	const delta = entry.wordsAdded;
+	const delta =
+		unit === Unit.CHAR ? entry.charsAdded : entry.wordsAdded;
 	const prefix = delta > 0 ? "+" : "";
 
 	// Today's delta is measured live against the baseline: it moves with
@@ -110,8 +116,8 @@ const EntryRow = React.memo(function EntryRow({
 	const baseline = useStore((s) => s.todayBaselines[entry.filePath]);
 	const baselineInfo =
 		entry.date === today && baseline !== undefined
-			? `Baseline ${baseline.toLocaleString()} → current ${(
-					baseline + delta
+			? `Baseline ${(unit === Unit.CHAR ? baseline.c : baseline.w).toLocaleString()} → current ${(
+					(unit === Unit.CHAR ? baseline.c : baseline.w) + delta
 				).toLocaleString()} (${prefix}${delta.toLocaleString()} today)`
 			: null;
 
@@ -126,7 +132,12 @@ const EntryRow = React.memo(function EntryRow({
 	);
 
 	return (
-		<div className="todayEntires__list-item">
+		<div
+			className={
+				"todayEntires__list-item" +
+				(isDeleted ? " todayEntries__list-item--deleted" : "")
+			}
+		>
 			<span
 				className="todayEntries__file-path"
 				onClick={() => onOpenFile(entry.filePath)}
@@ -155,7 +166,8 @@ const EntryRow = React.memo(function EntryRow({
 							countSpan
 						)}
 						<span className="todayEntries_list-item-unit">
-							{" words"}
+							{" "}
+							{unit === Unit.CHAR ? "chars" : "words"}
 						</span>
 					</>
 				)}
@@ -212,7 +224,14 @@ const QuickAddRow = React.memo(function QuickAddRow({
 
 	useEffect(() => {
 		const el = fileInputRef.current;
-		if (el) new FileSuggest(getPlugin().app, el);
+		if (el) {
+			new FileSuggest(getPlugin().app, el);
+			// Pre-fill with the currently open markdown file, so the manual
+			// entry targets the active file by default (mirrors the old
+			// ManualEntryModal prefill).
+			const activeFile = getPlugin().app.workspace.getActiveFile();
+			if (activeFile) el.value = activeFile.path;
+		}
 		// Focus the file input on open so a new entry can be typed right away.
 		el?.focus();
 	}, []);
@@ -287,10 +306,16 @@ const QuickAddRow = React.memo(function QuickAddRow({
 	);
 });
 
-export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps) => {
+export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }: EntriesProps) => {
 	// Subscribe to today so the header label + default date stay live when
 	// the calendar rolls over.
 	const today = useStore((s) => s.today);
+	const [unit, setUnit] = React.useState<Unit>(
+		preferredUnit ?? useStore.getState().settings.preferredUnit ?? Unit.WORD,
+	);
+	React.useEffect(() => {
+		if (preferredUnit) setUnit(preferredUnit);
+	}, [preferredUnit]);
 	const [selectedDate, setSelectedDate] = React.useState<string>(
 		() => dateProp ?? today,
 	);
@@ -335,7 +360,7 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 
 	const matchesFilters = useCallback(
 		(entry: ActivityRecord): boolean => {
-			if (entry.wordsAdded === 0) return false;
+			if (entry.wordsAdded === 0 && entry.charsAdded === 0) return false;
 			// "date" type is resolved upstream into the `date` prop, so only
 			// includes/excludes reach this predicate.
 			return (filters ?? []).every((f) => {
@@ -355,8 +380,12 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 		() =>
 			rawEntries
 				.filter(matchesFilters)
-				.sort((a, b) => b.wordsAdded - a.wordsAdded),
-		[rawEntries, matchesFilters],
+				.sort((a, b) => {
+					const av = unit === Unit.CHAR ? a.charsAdded : a.wordsAdded;
+					const bv = unit === Unit.CHAR ? b.charsAdded : b.wordsAdded;
+					return bv - av;
+				}),
+		[rawEntries, matchesFilters, unit],
 	);
 
 	// Quick-add row state.  The date is snapshotted when the row opens so
@@ -392,6 +421,17 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 			setIcon(el, "rotate-ccw");
 			el.dataset.iconSet = "1";
 		}
+	}, []);
+
+	const setUnitButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+		if (el && !el.dataset.iconSet) {
+			setIcon(el, "case-sensitive");
+			el.dataset.iconSet = "1";
+		}
+	}, []);
+
+	const toggleUnit = useCallback(() => {
+		setUnit((prev) => (prev === Unit.WORD ? Unit.CHAR : Unit.WORD));
 	}, []);
 
 	// Native date-picker hidden input, same pattern as ManualEntry.tsx.
@@ -493,6 +533,13 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 							/>
 						</Tooltip>
 					)}
+					<Tooltip content="Change Unit">
+						<button
+							className="todayEntries__entry-unit"
+							ref={setUnitButtonIcon}
+							onClick={toggleUnit}
+						/>
+					</Tooltip>
 					<Tooltip content="Add entry">
 						<button
 							className="todayEntries__manual-entry"
@@ -502,15 +549,24 @@ export const Entries = ({ date: dateProp, filters, onDateChange }: EntriesProps)
 					</Tooltip>
 				</div>
 				{entries && entries.length > 0 ? (
-					entries.map((entry) => (
-						<EntryRow
-							key={entry.filePath}
-							entry={entry}
-							onOpenFile={(fp) => void handleOpenFile(fp)}
-							onDelete={handleDelete}
-							onUpdate={handleUpdate}
-						/>
-					))
+					entries.map((entry) => {
+						// Show rows whose file no longer exists (deleted from
+						// vault) struck-through instead of hiding them, so the
+						// user can see what was deleted.
+						const isDeleted =
+							!getPlugin().app.vault.getFileByPath(entry.filePath);
+						return (
+							<EntryRow
+								key={entry.filePath}
+								entry={entry}
+								unit={unit}
+								isDeleted={isDeleted}
+								onOpenFile={(fp) => void handleOpenFile(fp)}
+								onDelete={handleDelete}
+								onUpdate={handleUpdate}
+							/>
+						);
+					})
 				) : (
 					<div className="empty-data">
 						<span>No files edited today</span>

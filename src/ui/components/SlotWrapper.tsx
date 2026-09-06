@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import React from "react";
-import { CalculationType, SlotConfig, TargetCount } from "@/defs/types";
+import { CalculationType, SlotConfig, TargetCount, Unit } from "@/defs/types";
 import { Slot } from "./Slot";
 import { useStore } from "@/core/store";
 import { useRef, useCallback, useMemo } from "react";
@@ -67,6 +67,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
     const newSlot: SlotConfig = {
       index: effectiveSlots?.length ?? 0,
       option: TargetCount.CURRENT_DAY,
+      unit: useStore.getState().settings.preferredUnit ?? Unit.WORD,
       calc: CalculationType.TOTAL,
     };
 
@@ -99,6 +100,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
                 <Slot
                   index={i}
                   option={slot.option}
+                  unit={slot.unit}
                   calc={slot.calc}
                   onDelete={handleDeleteClick}
                   isCodeBlock={isCodeBlock}

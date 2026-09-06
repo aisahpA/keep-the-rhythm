@@ -3,6 +3,7 @@ import {
 	DayActivityMap,
 	TargetCount,
 	CalculationType,
+	Unit,
 } from "@/defs/types";
 import { useStore, KTRState } from "./store";
 import {
@@ -21,6 +22,11 @@ import { TFile } from "obsidian";
 export const selectTodayVersion = (s: KTRState) => s.todayVersion;
 export const selectHistoricalVersion = (s: KTRState) => s.historicalVersion;
 
+/** Pick the words or chars counter from a counts object based on the unit. */
+export function countByUnit(counts: { w: number; c: number }, unit: Unit): number {
+	return unit === Unit.CHAR ? counts.c : counts.w;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Pure read helpers (array → value).
  *
@@ -37,10 +43,11 @@ export function getActivityByDate(date: string): DayActivityMap {
  */
 export function getActivityRowsByDate(date: string): ActivityRecord[] {
 	const day = getActivityByDate(date);
-	return Object.entries(day).map(([filePath, wordsAdded]) => ({
+	return Object.entries(day).map(([filePath, added]) => ({
 		date,
 		filePath,
-		wordsAdded,
+		wordsAdded: added.w,
+		charsAdded: added.c,
 	}));
 }
 
@@ -50,7 +57,12 @@ export function getActivityByDateAndFile(
 ): ActivityRecord | undefined {
 	const day = getActivityByDate(date);
 	if (day[filePath] === undefined) return undefined;
-	return { date, filePath, wordsAdded: day[filePath] };
+	return {
+		date,
+		filePath,
+		wordsAdded: day[filePath].w,
+		charsAdded: day[filePath].c,
+	};
 }
 
 type PeriodRange = { startDate: string; totalDays: number };
@@ -138,18 +150,21 @@ function getPeriodRange(
 let _sumCache: {
 	today: string;
 	historicalVersion: number;
-	sums: Partial<Record<TargetCount, number>>;
+	sums: Partial<Record<string, number>>;
 } = { today: "", historicalVersion: -1, sums: {} };
 
 /**
  * Sum words over a period target's full range [startDate, today].
- * Cached by (target, today, historicalVersion): the historical partition
- * doesn't change on keystrokes, so the O(days) walk (7 / 30 / 365) runs
- * only when today or historicalVersion changes; per keystroke the cached
- * total already includes the stable historical part, re-summed cheaply
- * with today's live overlay below.
+ * Cached by (target+unit, today, historicalVersion): the historical
+ * partition doesn't change on keystrokes, so the O(days) walk (7 / 30 /
+ * 365) runs only when today or historicalVersion changes; per keystroke
+ * the cached total already includes the stable historical part, re-summed
+ * cheaply with today's live overlay below.
  */
-function getPeriodHistoricalSum(target: TargetCount): number {
+function getPeriodHistoricalSum(
+	target: TargetCount,
+	unit: Unit,
+): number {
 	const { today, historicalVersion } = useStore.getState();
 
 	if (
@@ -161,7 +176,8 @@ function getPeriodHistoricalSum(target: TargetCount): number {
 		_sumCache.sums = {};
 	}
 
-	const cached = _sumCache.sums[target];
+	const cacheKey = `${target}|${unit}`;
+	const cached = _sumCache.sums[cacheKey];
 	if (cached !== undefined) return cached;
 
 	const range = getPeriodRange(target);
@@ -175,11 +191,11 @@ function getPeriodHistoricalSum(target: TargetCount): number {
 	const cursor = new Date(parseDate(today));
 	cursor.setDate(cursor.getDate() - 1);
 	while (cursor >= start) {
-		sum += map[formatDate(cursor)] || 0;
+		sum += countByUnit(map[formatDate(cursor)] ?? { w: 0, c: 0 }, unit);
 		cursor.setDate(cursor.getDate() - 1);
 	}
 
-	_sumCache.sums[target] = sum;
+	_sumCache.sums[cacheKey] = sum;
 	return sum;
 }
 
@@ -191,21 +207,26 @@ function getPeriodHistoricalSum(target: TargetCount): number {
 export function getCurrentCount(
 	target: TargetCount,
 	calc?: CalculationType,
+	unit?: Unit,
 ): number {
-	const { today } = useStore.getState();
+	const { today, settings } = useStore.getState();
+	const resolvedUnit = unit ?? settings.preferredUnit ?? Unit.WORD;
 	if (target === TargetCount.CURRENT_STREAK) {
 		return getStreak();
 	}
 	if (target === TargetCount.CURRENT_DAY) {
 		const map = getDailySummaryMap();
-		return map[today] || 0;
+		return countByUnit(map[today] ?? { w: 0, c: 0 }, resolvedUnit);
 	}
 	if (target === TargetCount.LAST_DAY) {
 		const map = getDailySummaryMap();
 		const yesterdayDate = parseDate(today);
 		yesterdayDate.setDate(yesterdayDate.getDate() - 1);
 		const yesterday = formatDate(yesterdayDate);
-		return (map[yesterday] || 0) + (map[today] || 0);
+		return (
+			countByUnit(map[yesterday] ?? { w: 0, c: 0 }, resolvedUnit) +
+			countByUnit(map[today] ?? { w: 0, c: 0 }, resolvedUnit)
+		);
 	}
 
 	const range = getPeriodRange(target);
@@ -217,7 +238,9 @@ export function getCurrentCount(
 	// getPeriodSum is cached across keystrokes (historical part is stable);
 	// only today's live row is overlaid here, so typing stays O(1).
 	const map = getDailySummaryMap();
-	const value = getPeriodHistoricalSum(target) + (map[today] || 0);
+	const value =
+		getPeriodHistoricalSum(target, resolvedUnit) +
+		countByUnit(map[today] ?? { w: 0, c: 0 }, resolvedUnit);
 	return calc === CalculationType.AVG
 		? Math.round(value / range.totalDays)
 		: value;
@@ -252,7 +275,7 @@ export async function getExistingOrCreateNewEntry(
 	if (date === cur.today) {
 		await ensureBaseline(file);
 	}
-	return { date, filePath: file.path, wordsAdded: 0 };
+	return { date, filePath: file.path, wordsAdded: 0, charsAdded: 0 };
 }
 
 /**
@@ -267,9 +290,10 @@ export const deleteActivityFromDate = (
 
 /**
  * Add or update the activity row for (date, filePath), storing `wordAdded`
- * as the day's total for that file.  For today the baseline is always
- * recomputed (`currentCount - added`, see setBaselineFromManualEntry) so
- * the manual value acts as the anchor for live tracking — subsequent
+ * as the day's word total for that file (chars are derived from the live
+ * editor count minus the re-anchored baseline).  For today the baseline is
+ * always recomputed (`currentCount - added`, see setBaselineFromManualEntry)
+ * so the manual value acts as the anchor for live tracking — subsequent
  * typing accumulates on top of it instead of the live sampler silently
  * overriding a lower manual value.  Historical dates need no baseline at all.
  */
@@ -277,14 +301,19 @@ export const addOrUpdateActivity = async (
 	file: TFile,
 	date: string,
 	wordAdded: number,
+	charAdded?: number,
 ): Promise<void> => {
 	const cur = useStore.getState();
 
+	// Manual entries only enter word amounts; the char delta defaults to
+	// the same ×5 rule the old manual-entry modal used.
+	const resolvedChars = charAdded ?? wordAdded * 5;
+
 	if (date === cur.today) {
-		await setBaselineFromManualEntry(file, wordAdded);
+		await setBaselineFromManualEntry(file, wordAdded, resolvedChars);
 	}
 
-	cur.upsertAdded(date, file.path, wordAdded);
+	cur.upsertAdded(date, file.path, { w: wordAdded, c: resolvedChars });
 };
 
 
