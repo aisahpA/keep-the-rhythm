@@ -16,6 +16,7 @@ import {
 } from "@/utils/dateUtils";
 import { getDailySummaryMap, getStreak } from "@/utils/dailySummaryCache";
 import { ensureBaseline, setBaselineFromManualEntry } from "@/core/baselines";
+import { getPlugin } from "@/core/pluginRegistry";
 import { TFile } from "obsidian";
 
 /** Version selectors for React components to subscribe to. */
@@ -213,6 +214,17 @@ export function getCurrentCount(
 	const resolvedUnit = unit ?? settings.preferredUnit ?? Unit.WORD;
 	if (target === TargetCount.CURRENT_STREAK) {
 		return getStreak();
+	}
+	if (target === TargetCount.CURRENT_FILE) {
+		// Today's row for the active file, straight out of days[today] —
+		// no recomputation (rows are the debounced live samples).
+		const file = getPlugin().app.workspace.getActiveFile();
+		const added = file
+			? getActivityByDateAndFile(today, file.path)
+			: undefined;
+		return added
+			? countByUnit({ w: added.wordsAdded, c: added.charsAdded }, resolvedUnit)
+			: 0;
 	}
 	if (target === TargetCount.CURRENT_DAY) {
 		const map = getDailySummaryMap();

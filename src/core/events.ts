@@ -50,6 +50,10 @@ async function ensureActivityExists(file: TFile) {
 }
 
 export async function handleFileOpen(leaf: WorkspaceLeaf | null) {
+	// Signal CURRENT_FILE slots (active file changed, even if the leaf
+	// isn't a tracked markdown view — the slot should then read 0).
+	useStore.setState((s) => ({ activeFileVersion: s.activeFileVersion + 1 }));
+
 	// Flush any pending sample from the previously focused leaf.
 	await flushPendingEditorChange();
 

@@ -43,6 +43,11 @@ export const Slot = React.memo(function Slot({
 	// event listeners.
 	const todayVersion = useStore(selectTodayVersion);
 	const historicalVersion = useStore(selectHistoricalVersion);
+	// Only CURRENT_FILE slots subscribe: the selector returns a constant
+	// for every other type, so file switches don't re-render/re-compute them.
+	const activeFileVersion = useStore((s) =>
+		optionType === TargetCount.CURRENT_FILE ? s.activeFileVersion : 0,
+	);
 	const dailyWritingGoal = useStore((s) => s.settings.dailyWritingGoal);
 	const mutateSettings = useStore((s) => s.mutateSettings);
 
@@ -50,9 +55,11 @@ export const Slot = React.memo(function Slot({
 	// synchronously, so we just memoize on the slices the count depends on.
 	// Using version numbers instead of the dailyActivity array reference
 	// avoids unnecessary recomputation when only unrelated entries change.
+	// activeFileVersion only changes for CURRENT_FILE slots (see selector);
+	// while typing, todayVersion bumps on each debounced sample.
 	const value = useMemo(
 		() => getCurrentCount(optionType, calcMode, unitType),
-		[optionType, calcMode, unitType, todayVersion, historicalVersion, dailyWritingGoal],
+		[optionType, calcMode, unitType, todayVersion, historicalVersion, activeFileVersion, dailyWritingGoal],
 	);
 
 	const unitText = () => {
@@ -66,7 +73,8 @@ export const Slot = React.memo(function Slot({
 	const showCalcType =
 		optionType !== TargetCount.CURRENT_DAY &&
 		optionType !== TargetCount.LAST_DAY &&
-		optionType !== TargetCount.CURRENT_STREAK;
+		optionType !== TargetCount.CURRENT_STREAK &&
+		optionType !== TargetCount.CURRENT_FILE;
 
 	// Ref callbacks with dataset guard: setIcon only fires once per DOM
 	// node, not on every re-render or effect cycle (React 18 strict mode

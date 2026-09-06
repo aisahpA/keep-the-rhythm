@@ -121,8 +121,9 @@ export interface ThemeColors {
 }
 
 export enum TargetCount {
+	CURRENT_FILE = "CURRENT_FILE",
 	CURRENT_STREAK = "CURRENT_STREAK",
-	CURRENT_DAY = "CURRENT_DAY", // Add progress bar towards daily goal
+	CURRENT_DAY = "CURRENT_DAY",
 	CURRENT_WEEK = "CURRENT_WEEK",
 	CURRENT_MONTH = "CURRENT_MONTH",
 	CURRENT_YEAR = "CURRENT_YEAR",

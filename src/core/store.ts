@@ -73,6 +73,9 @@ export interface KTRState {
 	todayBaselinesDay: string | null;
 	todayVersion: number;
 	historicalVersion: number;
+	/** Bumped on every active-leaf-change — lets CURRENT_FILE slots
+	 *  re-read the editor when the user switches files. */
+	activeFileVersion: number;
 	/** Fast set of all file paths ever tracked — used to short-circuit
 	 *  rename events for files that never appeared in days.  Allowed to
 	 *  have stale entries (false positives are harmless); must never
@@ -121,6 +124,7 @@ export const useStore = create<KTRState>()(
 		todayBaselinesDay: null,
 		todayVersion: 0,
 		historicalVersion: 0,
+		activeFileVersion: 0,
 		activeFiles: new Set<string>(),
 
 		checkDayChange: () => {
