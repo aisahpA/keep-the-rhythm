@@ -38,8 +38,12 @@ const URL_PATTERN = "(?:https?|ftp|file|obsidian):\\/\\/[^\\s<>)\\]]+";
 /** An email address, matched whole so it contributes exactly one word. */
 const EMAIL_PATTERN = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}";
 
-/** `[label](url)` and `![alt](url)`, reduced to the visible label. */
-const MARKDOWN_LINK_PATTERN = /\[([^\]\n]*)\]\([^)\n]*\)/g;
+/**
+ * `[label](url)` and `![alt](url)`, reduced to the visible label.
+ * The URL allows one level of nested parens, so Wikipedia-style links
+ * like `[x](.../Foo_(bar))` are matched whole instead of being cut at `(bar`.
+ */
+const MARKDOWN_LINK_PATTERN = /\[([^\]\n]*)\]\((?:[^()\n]|\([^)\n]*\))*\)/g;
 
 /** Obsidian comments: %% inline %% or a multi-line %% ... %% block. */
 const COMMENT_PATTERN = /%%[\s\S]*?%%/g;
@@ -145,6 +149,9 @@ let cachedRegex: RegExp | null = null;
 let cachedLangKey: string | null = null;
 
 export function createRegex(langs: Language[]): RegExp {
+	const key = langs.join(",");
+	if (cachedLangKey === key && cachedRegex) return cachedRegex;
+
 	// Matched first so a URL or address is consumed whole rather than being
 	// split into several words by its punctuation.
 	const patterns: string[] = [URL_PATTERN, EMAIL_PATTERN];
@@ -174,11 +181,11 @@ export function createRegex(langs: Language[]): RegExp {
 		);
 	}
 
-	if (patterns.length === 0) {
-		return /(?!)/gu;
-	}
-
-	return new RegExp(patterns.join("|"), "gu");
+	const regex =
+		patterns.length === 0 ? /(?!)/gu : new RegExp(patterns.join("|"), "gu");
+	cachedLangKey = key;
+	cachedRegex = regex;
+	return regex;
 }
 
 export function getLanguageBasedWordCount(
@@ -186,10 +193,5 @@ export function getLanguageBasedWordCount(
 	enabledLanguages: Language[],
 	options?: WordCountOptions,
 ) {
-	const key = enabledLanguages.join(",");
-	if (cachedLangKey !== key) {
-		cachedRegex = createRegex(enabledLanguages);
-		cachedLangKey = key;
-	}
-	return getWordCount(text, cachedRegex!, options);
+	return getWordCount(text, createRegex(enabledLanguages), options);
 }
