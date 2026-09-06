@@ -1,6 +1,6 @@
 import { getLeafWithFile } from "../../utils/utils";
 import React, { useMemo } from "react";
-import { HeatmapColorModes } from "../../defs/types";
+import { HeatmapColorModes, Unit } from "../../defs/types";
 import * as obsidian from "obsidian";
 import { Tooltip } from "./Tooltip";
 import { getCorePluginSettings } from "../../utils/windowUtility";
@@ -12,10 +12,20 @@ const moment = _moment as unknown as typeof _moment.default;
 interface HeatmapCellProps {
 	intensity: number;
 	count: number;
+	unit?: Unit;
 	date: string;
 	mode: HeatmapColorModes;
 	squared?: boolean;
+	cellSize?: number;
 	isToday: boolean;
+	/** True when another month/weekday is hovered — dims non-matching cells. */
+	dimmed?: boolean;
+	/**
+	 * When provided, clicking the cell reports the date instead of opening
+	 * the day's daily note (used by the sidebar to drive the Entries list).
+	 */
+	onCellClick?: (date: string) => void;
+	selected?: boolean;
 }
 
 /**
@@ -28,12 +38,22 @@ interface HeatmapCellProps {
 export const HeatmapCell = React.memo(function HeatmapCell({
 	intensity,
 	count,
+	unit = Unit.WORD,
 	date,
 	mode,
 	squared,
+	cellSize,
 	isToday,
+	dimmed,
+	onCellClick,
+	selected,
 }: HeatmapCellProps) {
 	const handleClick = async (_event: React.MouseEvent<HTMLDivElement>) => {
+		if (onCellClick) {
+			onCellClick(date);
+			return;
+		}
+
 		const app = getPlugin().app;
 		if (!useStore.getState().settings.heatmapNavigation) return;
 
@@ -63,7 +83,7 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 			if (existingLeaf) {
 				app.workspace.setActiveLeaf(existingLeaf);
 			} else {
-				app.workspace.getLeaf(true).openFile(existingFile);
+				await app.workspace.getLeaf(true).openFile(existingFile);
 			}
 		} else {
 			const newFile = await app.vault.create(notePath, "");
@@ -78,7 +98,6 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 		mode == HeatmapColorModes.SOLID ||
 		intensity == 0
 	) {
-		//  TODO: fix this, is not working :(
 		intensityClass = "level-" + intensity + " ";
 	} else if (mode == HeatmapColorModes.GRADUAL) {
 		intensityClass = "proportional-intensity";
@@ -87,27 +106,41 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 	}
 	const isTodayClass = isToday ? "heatmap-square-today" : "";
 
+	const isSelectedClass = selected ? "heatmap-square-selected" : "";
+
 	const isSquaredClass = squared ? "cell-squared" : "cell-rounded";
 
-	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${intensityClass}`;
+	const isDimmedClass = dimmed ? "heatmap-square-dimmed" : "";
+
+	const classes = `heatmap-square ${isTodayClass} ${isSquaredClass} ${isSelectedClass} ${isDimmedClass} ${intensityClass}`;
 
 	const style = {
 		"--intensity": `${intensity}%`,
+		width: cellSize,
+		height: cellSize,
 	} as React.CSSProperties & Record<string, string | number>;
+
+	const unitLabel = unit === Unit.CHAR ? "chars" : "words";
 
 	const tooltipContent = useMemo(
 		() => (
 			<>
 				<strong>{date}</strong>
-				<div>{count.toLocaleString()} words</div>
+				<div>
+					{count.toLocaleString()} {unitLabel}
+				</div>
 			</>
 		),
-		[date, count],
+		[date, count, unitLabel],
 	);
 
 	return (
 		<Tooltip content={tooltipContent}>
-			<div onClick={handleClick} className={classes} style={style}></div>
+			<div
+				onClick={(e) => void handleClick(e)}
+				className={classes}
+				style={style}
+			></div>
 		</Tooltip>
 	);
 });

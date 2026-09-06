@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import React from "react";
-import { CalculationType, SlotConfig, TargetCount } from "@/defs/types";
+import { CalculationType, SlotConfig, TargetCount, Unit } from "@/defs/types";
 import { Slot } from "./Slot";
 import { useStore } from "@/core/store";
 import { useRef, useCallback, useMemo } from "react";
@@ -17,7 +17,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
   const effectiveSlots = isCodeBlock ? slotsProp : storeSlots;
 
   const uuidMapRef = useRef<Map<number, string>>(new Map());
-  const nodeRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement> }>(
+  const nodeRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement | null> }>(
     {},
   );
 
@@ -61,12 +61,13 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
 
   const handleAddClick = useCallback(() => {
     if (slotsWithUuid && slotsWithUuid.length >= 10) {
-      new Notice("Maximum of 10 slots per view! (at least for now)");
+      new Notice("Maximum of 10 slots per view! (At least for now)");
       return;
     }
     const newSlot: SlotConfig = {
       index: effectiveSlots?.length ?? 0,
       option: TargetCount.CURRENT_DAY,
+      unit: useStore.getState().settings.preferredUnit ?? Unit.WORD,
       calc: CalculationType.TOTAL,
     };
 
@@ -86,7 +87,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
     <div className="slot__section">
       <TransitionGroup className="slot__list">
         {slotsWithUuid?.map((slot, i) => {
-          const nodeRef = getNodeRef(slot.uuid!);
+          const nodeRef = getNodeRef(slot.uuid);
           return (
             <CSSTransition
               key={slot.uuid}
@@ -99,6 +100,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
                 <Slot
                   index={i}
                   option={slot.option}
+                  unit={slot.unit}
                   calc={slot.calc}
                   onDelete={handleDeleteClick}
                   isCodeBlock={isCodeBlock}

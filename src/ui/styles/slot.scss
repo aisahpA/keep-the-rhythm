@@ -92,6 +92,22 @@
 	button:last-child {
 		color: var(--text-error);
 	}
+
+	select.KTR-min-select {
+		all: unset;
+		cursor: pointer;
+		color: var(--text-muted);
+		font-size: var(--font-ui-small);
+		text-align: right;
+		max-width: 110px;
+		text-overflow: ellipsis;
+		transition: 200ms ease;
+		transition-property: color;
+
+		&:hover {
+			color: var(--text-normal);
+		}
+	}
 }
 
 .slot__value {
@@ -199,35 +215,45 @@ button.KTR-add-slot-button {
 }
 
 .theme-light .progress {
-	background: linear-gradient(to right, var(--light-3), var(--light-4));
+	--bar-color-left: var(--light-0);
+	--bar-color-right: var(--light-4);
+
+	&.completed {
+		--bar-color-left: var(--light-4);
+	}
 }
 
 .theme-dark .progress {
-	background: linear-gradient(to right, var(--dark-3), var(--dark-4));
+	--bar-color-left: var(--dark-0);
+	--bar-color-right: var(--dark-4);
+
+	&.completed {
+		--bar-color-left: var(--dark-4);
+	}
 }
 
 .today-progress-bar {
-	--color: color-mix(in oklch, var(--background-secondary), white 5%);
 	height: 5px;
-	background-color: var(--color);
-	box-shadow: 0 0 0 1px var(--color);
+	background-color: var(--background-secondary-alt);
 	margin-top: 6px;
 	border-radius: 4px;
 	overflow: hidden;
 
 	.progress {
 		height: 100%;
-		transition: width 300ms ease;
+		transition-property: width;
+		transition-duration: 300ms;
+		transition-timing-function: ease;
 		border-radius: 2px;
+		background: linear-gradient(
+			to right,
+			var(--bar-color-left),
+			var(--bar-color-right)
+		);
 	}
 }
 
 .KTR-week-progress {
-	--color: color-mix(
-		in oklch,
-		var(--background-secondary),
-		var(--text-normal) 15%
-	);
 	display: flex;
 	gap: 4px;
 	margin-top: 8px;
@@ -235,15 +261,11 @@ button.KTR-add-slot-button {
 	.KTR-dot {
 		width: 100%;
 		height: 6px;
-		background-color: var(--color);
+		background-color: var(--background-secondary-alt);
 		border-radius: 8px;
 
 		&.completed {
-			background: linear-gradient(
-				to right,
-				var(--light-3),
-				var(--light-4)
-			);
+			background: var(--light-4);
 		}
 	}
 }

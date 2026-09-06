@@ -1,7 +1,8 @@
 import { useStore } from "@/core/store";
 import { parseDate, formatDate } from "./dateUtils";
+import { ActivityCounts } from "@/defs/types";
 
-// ─── Date → Total-Words Map Cache ───────────────────────────────
+// ─── Date → Total-Counts Map Cache ─────────────────────────────
 // A single persistent merged map. A full O(N) rebuild happens only when
 // the historical partition changes (rare); the typing hot path (today-only
 // change) swaps the `today` key in the existing object in place, so it
@@ -13,16 +14,16 @@ import { parseDate, formatDate } from "./dateUtils";
 // retaining the reference across changes, so in-place mutation is safe.
 // ──────────────────────────────────────────────────────────────────
 
-let cachedMergedMap: Record<string, number> = {};
+let cachedMergedMap: Record<string, ActivityCounts> = {};
 let cachedHistoricalVersion = -1;
 let cachedTodayVersion = -1;
 let cachedToday = "";
 
 /**
- * Get a date → total-words summary map built from the store's two
- * partitions (historical date < today, today date === today).
+ * Get a date → total-counts summary map (both words and chars) built from
+ * the store's two partitions (historical date < today, today date === today).
  */
-export function getDailySummaryMap(): Record<string, number> {
+export function getDailySummaryMap(): Record<string, ActivityCounts> {
 	const { days, today, todayVersion, historicalVersion } =
 		useStore.getState();
 
@@ -48,9 +49,9 @@ export function getDailySummaryMap(): Record<string, number> {
 		// Full rebuild — rare (historical edits, day rollover, external
 		// sync). The O(days × files) merge happens here, never on the hot
 		// path.
-		const map: Record<string, number> = {};
+		const map: Record<string, ActivityCounts> = {};
 		for (const [date, day] of Object.entries(days)) {
-			map[date] = countWordsAdded(day);
+			map[date] = countActivity(day);
 		}
 		cachedMergedMap = map;
 	}
@@ -59,7 +60,7 @@ export function getDailySummaryMap(): Record<string, number> {
 	// persistent merged map instead of copying the whole map.  Every today
 	// entry shares date === today, so the stale contribution is a single
 	// key. O(k) — typically one key.
-	cachedMergedMap[today] = countWordsAdded(days[today] ?? {});
+	cachedMergedMap[today] = countActivity(days[today] ?? {});
 
 	cachedHistoricalVersion = historicalVersion;
 	cachedTodayVersion = todayVersion;
@@ -67,10 +68,16 @@ export function getDailySummaryMap(): Record<string, number> {
 	return cachedMergedMap;
 }
 
-function countWordsAdded(day: Record<string, number>): number {
-	let sum = 0;
-	for (const added of Object.values(day)) sum += added;
-	return sum;
+function countActivity(
+	day: Record<string, ActivityCounts>,
+): ActivityCounts {
+	let w = 0;
+	let c = 0;
+	for (const added of Object.values(day)) {
+		w += added.w;
+		c += added.c;
+	}
+	return { w, c };
 }
 
 // ─── Streak Cache ────────────────────────────────────────────────
@@ -118,7 +125,8 @@ export function getStreak(): number {
 		const cursor = 	parseDate(today);
 		cursor.setDate(cursor.getDate() - 1);
 		while (true) {
-			const words = dailySummaryMap[formatDate(cursor)];
+			const counts = dailySummaryMap[formatDate(cursor)];
+			const words = counts?.w;
 			if (words === undefined || words < goal) break;
 			cachedHistoricalStreak++;
 			cursor.setDate(cursor.getDate() - 1);
@@ -126,7 +134,7 @@ export function getStreak(): number {
 		cachedHistoricalStreakKey = histKey;
 	}
 
-	const isTodayStreak = dailySummaryMap[today] >= goal;
+	const isTodayStreak = (dailySummaryMap[today]?.w ?? 0) >= goal;
 	
 	cachedStreak = cachedHistoricalStreak + (isTodayStreak ? 1 : 0);
 	cachedStreakKey = key;

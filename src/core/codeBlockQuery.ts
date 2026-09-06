@@ -1,13 +1,28 @@
-import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
+import { HeatmapColorModes, HeatmapConfig, Unit } from "@/defs/types";
 import jsep from "jsep";
 import { ActivityRecord } from "@/defs/types";
 import {
 	isValidCalculationType,
 	isValidTargetCount,
 	isValidColoringMode,
+	isValidUnit,
 } from "@/utils/utils";
-import { SlotConfig, TargetCount, CalculationType } from "@/defs/types";
+import { SlotConfig, CalculationType } from "@/defs/types";
 import { useStore } from "./store";
+
+/**
+ * Structural subset of a jsep AST that the filter evaluator consumes.
+ * jsep's own Expression interface is too wide to index safely.
+ */
+export interface FilterNode {
+	type: string;
+	value?: string | number | boolean | null;
+	name?: string;
+	left?: FilterNode;
+	right?: FilterNode;
+	argument?: FilterNode;
+	operator?: string;
+}
 
 // Register custom binary operators once at module load.  These calls are
 // idempotent but we used to do them inside parseQueryToJSEP on every
@@ -24,7 +39,7 @@ jsep.addBinaryOp("CONTAINS", 6);
 // invalidated Heatmap's compiledEvaluator useMemo on every keystroke.
 // 32 entries is plenty for any realistic vault.
 const MAX_AST_CACHE = 32;
-const filterAstCache = new Map<string, any | null>();
+const filterAstCache = new Map<string, FilterNode | null>();
 
 // Result cache for the full { filter, options } pair returned by
 // parseQueryToJSEP.  Without this, every markdown re-render creates a
@@ -35,7 +50,7 @@ const filterAstCache = new Map<string, any | null>();
 const MAX_QUERY_CACHE = 32;
 const queryResultCache = new Map<
 	string,
-	{ filter: any; options: HeatmapConfig }
+	{ filter: FilterNode | null | undefined; options: HeatmapConfig }
 >();
 
 export function parseSlotQuery(query: string): SlotConfig[] {
@@ -49,6 +64,7 @@ export function parseSlotQuery(query: string): SlotConfig[] {
 		const parts = arrayOfLines[i].replace(/ /g, "").split(",");
 
 		let type = parts[0];
+		let unit = useStore.getState().settings.preferredUnit ?? Unit.WORD;
 		let calc = CalculationType.TOTAL;
 
 		if (!isValidTargetCount(type)) {
@@ -57,14 +73,19 @@ export function parseSlotQuery(query: string): SlotConfig[] {
 			// deveria mostrar o erro no codeblock mesmo, mas nao sei fazer isso ainda
 		}
 
+		if (parts[1] && isValidUnit(parts[1])) {
+			unit = parts[1];
+		}
+
 		if (parts[2] && isValidCalculationType(parts[2])) {
 			calc = parts[2];
 		}
 
 		slots.push({
 			index: i,
-			option: type as TargetCount,
-			calc: (calc as CalculationType) ?? CalculationType.TOTAL,
+			option: type,
+			unit,
+			calc: (calc) ?? CalculationType.TOTAL,
 		});
 	}
 
@@ -75,7 +96,7 @@ export function parseSlotQuery(query: string): SlotConfig[] {
  * Parse a heatmap filter expression into a jsep AST, with caching.
  * Returns undefined when there's no filter, null when parsing failed.
  */
-function getFilterAst(filterText: string): any | undefined | null {
+function getFilterAst(filterText: string): FilterNode | null | undefined {
 	const trimmed = filterText?.trim();
 	if (!trimmed) return undefined;
 
@@ -84,7 +105,7 @@ function getFilterAst(filterText: string): any | undefined | null {
 	}
 
 	const normalized = normalizeLogicalOperators(trimmed);
-	let ast: any = null;
+	let ast: unknown = null;
 	try {
 		ast = jsep(normalized);
 	} catch (error) {
@@ -95,11 +116,13 @@ function getFilterAst(filterText: string): any | undefined | null {
 
 	if (filterAstCache.size >= MAX_AST_CACHE) {
 		// Drop the oldest entry (Map preserves insertion order).
-		const firstKey = filterAstCache.keys().next().value;
-		if (firstKey !== undefined) filterAstCache.delete(firstKey);
+		for (const firstKey of filterAstCache.keys()) {
+			filterAstCache.delete(firstKey);
+			break;
+		}
 	}
-	filterAstCache.set(trimmed, ast);
-	return ast;
+	filterAstCache.set(trimmed, ast as FilterNode | null);
+	return filterAstCache.get(trimmed);
 }
 
 /**
@@ -168,6 +191,15 @@ function buildOptionsConfig(optionsText: string): HeatmapConfig {
 				break;
 			case "WEEKS":
 				config.numberOfWeeks = Number(details) || 20;
+				break;
+			case "CELL_SIZE":
+				config.cellSize = Number(details) || 10;
+				break;
+			case "UNIT":
+				if (details && isValidUnit(details.trim())) {
+					config.unit = details.trim() as Unit;
+				}
+				break;
 		}
 	}
 
@@ -202,8 +234,11 @@ export function parseQueryToJSEP(query: string) {
 	};
 
 	if (queryResultCache.size >= MAX_QUERY_CACHE) {
-		const firstKey = queryResultCache.keys().next().value;
-		if (firstKey !== undefined) queryResultCache.delete(firstKey);
+		// Drop the oldest entry (Map preserves insertion order).
+		for (const firstKey of queryResultCache.keys()) {
+			queryResultCache.delete(firstKey);
+			break;
+		}
 	}
 	queryResultCache.set(trimmed, result);
 	return result;
@@ -215,14 +250,16 @@ function normalizeLogicalOperators(input: string): string {
 	return input.replace(/\bAND\b/gi, "&&").replace(/\bOR\b/gi, "||");
 }
 
-export function compileEvaluator(node: any): (entry: ActivityRecord) => boolean {
+export function compileEvaluator(
+	node: FilterNode | null | undefined,
+): (entry: ActivityRecord) => boolean {
 	if (!node) {
 		return () => true;
 	}
 
 	return (entry: ActivityRecord) => {
 		try {
-			return interpretNode(node, entry);
+			return Boolean(interpretNode(node, entry));
 		} catch (error) {
 			console.error("Filter evaluation error:", error);
 			return false;
@@ -257,7 +294,10 @@ function splitFilterAndOptions(input: string) {
 	};
 }
 
-function interpretNode(node: any, entry: ActivityRecord): any {
+function interpretNode(
+	node: FilterNode | null | undefined,
+	entry: ActivityRecord,
+): unknown {
 	if (!node) return true;
 
 	switch (node.type) {

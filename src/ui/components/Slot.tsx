@@ -9,7 +9,7 @@ import { getDailySummaryMap } from "@/utils/dailySummaryCache";
 import { CalculationType } from "@/defs/types";
 import { Tooltip } from "./Tooltip";
 import { getSlotLabel, weekdaysNames } from "../texts";
-import { TargetCount, SlotConfig } from "@/defs/types";
+import { TargetCount, SlotConfig, Unit } from "@/defs/types";
 import { useStore } from "@/core/store";
 
 const TARGET_COUNTS = Object.values(TargetCount);
@@ -17,6 +17,7 @@ const TARGET_COUNTS = Object.values(TargetCount);
 export const Slot = React.memo(function Slot({
 	index,
 	option,
+	unit,
 	calc,
 	onDelete,
 	isCodeBlock,
@@ -30,10 +31,11 @@ export const Slot = React.memo(function Slot({
 	// mutated externally (e.g. by another codeBlock).
 	const optionType = option;
 	const calcMode = calc;
+	const unitType = unit;
 
 	const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
-	const typeButtonRef = useRef<HTMLButtonElement | null>(null);
 	const calcButtonRef = useRef<HTMLButtonElement | null>(null);
+	const unitButtonRef = useRef<HTMLButtonElement | null>(null);
 
 	// Reactive slices of the store the slot's value depends on.  Each
 	// selector re-renders the component only when that slice changes,
@@ -41,6 +43,11 @@ export const Slot = React.memo(function Slot({
 	// event listeners.
 	const todayVersion = useStore(selectTodayVersion);
 	const historicalVersion = useStore(selectHistoricalVersion);
+	// Only CURRENT_FILE slots subscribe: the selector returns a constant
+	// for every other type, so file switches don't re-render/re-compute them.
+	const activeFileVersion = useStore((s) =>
+		optionType === TargetCount.CURRENT_FILE ? s.activeFileVersion : 0,
+	);
 	const dailyWritingGoal = useStore((s) => s.settings.dailyWritingGoal);
 	const mutateSettings = useStore((s) => s.mutateSettings);
 
@@ -48,23 +55,26 @@ export const Slot = React.memo(function Slot({
 	// synchronously, so we just memoize on the slices the count depends on.
 	// Using version numbers instead of the dailyActivity array reference
 	// avoids unnecessary recomputation when only unrelated entries change.
+	// activeFileVersion only changes for CURRENT_FILE slots (see selector);
+	// while typing, todayVersion bumps on each debounced sample.
 	const value = useMemo(
-		() => getCurrentCount(optionType, calcMode),
-		[optionType, calcMode, todayVersion, historicalVersion, dailyWritingGoal],
+		() => getCurrentCount(optionType, calcMode, unitType),
+		[optionType, calcMode, unitType, todayVersion, historicalVersion, activeFileVersion, dailyWritingGoal],
 	);
 
 	const unitText = () => {
 		if (optionType === TargetCount.CURRENT_STREAK) {
 			return "days";
 		} else {
-			return "words";
+			return unitType === Unit.CHAR ? "chars" : "words";
 		}
 	};
 
 	const showCalcType =
 		optionType !== TargetCount.CURRENT_DAY &&
 		optionType !== TargetCount.LAST_DAY &&
-		optionType !== TargetCount.CURRENT_STREAK;
+		optionType !== TargetCount.CURRENT_STREAK &&
+		optionType !== TargetCount.CURRENT_FILE;
 
 	// Ref callbacks with dataset guard: setIcon only fires once per DOM
 	// node, not on every re-render or effect cycle (React 18 strict mode
@@ -74,15 +84,15 @@ export const Slot = React.memo(function Slot({
 	const setCalcButtonIcon = useCallback(
 		(el: HTMLButtonElement | null) => {
 			if (!el || el.dataset.iconSet === calcMode) return;
-			setIcon(el, calcMode === "TOTAL" ? "chart-spline" : "sigma");
+			setIcon(el, calcMode === CalculationType.TOTAL ? "chart-spline" : "sigma");
 			el.dataset.iconSet = calcMode;
 		},
 		[calcMode],
 	);
 
-	const setTypeButtonIcon = useCallback((el: HTMLButtonElement | null) => {
+	const setUnitButtonIcon = useCallback((el: HTMLButtonElement | null) => {
 		if (!el || el.dataset.iconSet) return;
-		setIcon(el, "list");
+		setIcon(el, "case-sensitive");
 		el.dataset.iconSet = "1";
 	}, []);
 
@@ -108,11 +118,15 @@ export const Slot = React.memo(function Slot({
 		});
 	};
 
-	const toggleSlotType = () => {
-		const currentIndex = TARGET_COUNTS.indexOf(optionType);
-		const nextIndex = (currentIndex + 1) % TARGET_COUNTS.length;
-		const newOption = TARGET_COUNTS[nextIndex];
+	const toggleUnit = () => {
+		const newUnit: Unit = unitType === Unit.WORD ? Unit.CHAR : Unit.WORD;
+		mutateSettings((draft) => {
+			draft.sidebarConfig.slots[index].unit = newUnit;
+		});
+	};
 
+	const selectType = (event: React.ChangeEvent<HTMLSelectElement>) => {
+		const newOption = event.target.value as TargetCount;
 		mutateSettings((draft) => {
 			draft.sidebarConfig.slots[index].option = newOption;
 		});
@@ -131,7 +145,7 @@ export const Slot = React.memo(function Slot({
 		if (optionType !== TargetCount.CURRENT_WEEK) return [];
 		const map = getDailySummaryMap();
 		const weekDates = getCurrentWeekDates();
-		return weekDates.map((date) => (map[date] ?? 0) >= dailyWritingGoal);
+		return weekDates.map((date) => (map[date]?.w ?? 0) >= dailyWritingGoal);
 	}, [optionType, todayVersion, historicalVersion, dailyWritingGoal]);
 
 	return (
@@ -144,7 +158,7 @@ export const Slot = React.memo(function Slot({
 							{showCalcType && (
 								<Tooltip
 									content={
-										calcMode == "TOTAL"
+										calcMode == CalculationType.TOTAL
 											? "Show daily average"
 											: "Show total"
 									}
@@ -162,17 +176,31 @@ export const Slot = React.memo(function Slot({
 								</Tooltip>
 							)}
 
-							<Tooltip content="Change Type">
+							<Tooltip content="Change Unit">
 								<button
 									className="KTR-min-button"
 									ref={(el) => {
-										typeButtonRef.current = el;
-										setTypeButtonIcon(el);
+										unitButtonRef.current = el;
+										setUnitButtonIcon(el);
 									}}
 									onClick={() => {
-										toggleSlotType();
+										toggleUnit();
 									}}
 								></button>
+							</Tooltip>
+							<Tooltip content="Change Type">
+								<select
+									className="KTR-min-select"
+									value={optionType}
+									onChange={selectType}
+									onClick={(e) => e.stopPropagation()}
+								>
+									{TARGET_COUNTS.map((tc) => (
+										<option key={tc} value={tc}>
+											{getSlotLabel(tc)}
+										</option>
+									))}
+								</select>
 							</Tooltip>
 							<Tooltip content="Delete">
 								<button
@@ -195,14 +223,14 @@ export const Slot = React.memo(function Slot({
 				<div className="slot__unit">
 					{unitText()}
 					<span className="slot__unit-avg">
-						{showCalcType && calcMode == "AVG" ? "/day" : ""}
+						{showCalcType && calcMode == CalculationType.AVG ? "/day" : ""}
 					</span>
 				</div>
 			</div>
-			{optionType === TargetCount.CURRENT_DAY && (
+			{optionType === TargetCount.CURRENT_DAY && unitType !== Unit.CHAR && (
 				<div className="today-progress-bar">
 					<div
-						className="progress"
+						className={`progress ${progressValue === 100 ? "completed" : ""}`}
 						style={{
 							width: progressValue + "%",
 						}}

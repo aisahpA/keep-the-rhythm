@@ -9,7 +9,9 @@ export function getStartOfYear(date: Date) {
   return moment(date).startOf("year").toDate();
 }
 
-export function formatDateByMoment(date: moment.MomentInput): string {
+export function formatDateByMoment(
+  date: Parameters<typeof moment>[0],
+): string {
   return moment(date).format("YYYY-MM-DD");
 }
 

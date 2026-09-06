@@ -1,7 +1,3 @@
-import { App } from "obsidian";
-
-declare global {
-	interface Window {
-		app: any;
-	}
+interface Window {
+	app: unknown;
 }

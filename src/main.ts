@@ -1,22 +1,23 @@
-import { ManualEntryModal } from "./ui/components/ManualEntry";
-import { Plugin, TFile, TAbstractFile, moment as _moment } from "obsidian";
+import { Plugin, TFile, TAbstractFile } from "obsidian";
 
 import { setPlugin } from "@/core/pluginRegistry";
 import { useStore } from "@/core/store";
 import { PluginView, VIEW_TYPE } from "@/ui/views/PluginView";
 import { SettingsTab } from "@/ui/settings/SettingsTab";
 import { applyHeatmapColorStyles } from "@/ui/styles/applyColorStyles";
+import { TodayWordsStatusBar } from "@/ui/statusBar";
 
 import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
-import { activateSidebarView } from "@/core/commands";
-import { backupData } from "@/core/backup";
+import { activateSidebarView, insertCustomCodeBlock } from "@/core/commands";
+import { CUSTOM_CODE_BLOCK_COMMANDS } from "@/core/codeBlockTemplates";
+import { snapshotRawDataFile } from "@/core/backup";
 import {
-	preparePersistData,
 	setupPersistenceScheduling,
 	PersistenceScheduler,
 } from "@/core/dataPersistence";
 import { handleExternalDataChange } from "@/core/externalSync";
+import { PluginData } from "@/defs/types";
 import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
 import { resetStatsCodecCache } from "@/core/statsCodec";
 import { resetDataQueryCaches } from "@/core/dataQueries";
@@ -33,19 +34,24 @@ export default class KeepTheRhythm extends Plugin {
 	// Persistence scheduler with debounce state and unsubscribe handle
 	private persistenceScheduler: PersistenceScheduler | null = null;
 
+	private statusBar: TodayWordsStatusBar | null = null;
+
 	async onload() {
 		setPlugin(this);
 
 		// No DB to initialise — the in-memory store is empty until
 		// we hydrate it from data.json below.
-		const loadedData = await this.loadData();
-
-		await backupData(loadedData, this.app);
+		const loadedData = (await this.loadData()) as PluginData;
 
 		// Sync Zustand store with loaded data before any React
 		// component mounts.  After this point, store.settings /
 		// store.today are all populated.
 		useStore.getState().hydrateFromData(loadedData);
+
+		// Snapshot the on-disk data.json BEFORE anything can overwrite it
+		// (hydrate → persist).  Write-once per day: the retained copy is
+		// always the pre-reset state captured at the first open.
+		await snapshotRawDataFile(this, this.app, loadedData);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {
@@ -57,6 +63,8 @@ export default class KeepTheRhythm extends Plugin {
 		this.initializeCodeBlocks();
 		applyHeatmapColorStyles(this.app.workspace.containerEl);
 		this.addSettingTab(new SettingsTab(this.app, this));
+
+		this.statusBar = new TodayWordsStatusBar(this);
 
 		// The JSON save pipeline subscribes to the store's persistVersion
 		// counter, which is incremented (via requestPersist, rAF-coalesced)
@@ -85,25 +93,27 @@ export default class KeepTheRhythm extends Plugin {
 	}
 
 	private initializeCommands() {
-		this.addRibbonIcon("calendar-days", "Keep the Rhythm", () => {
-			activateSidebarView();
+		this.addRibbonIcon("calendar-days", "Keep the rhythm2", () => {
+			void activateSidebarView();
 		});
 
 		this.addCommand({
 			id: "open-sidebar",
 			name: "Open sidebar view",
 			callback: () => {
-				activateSidebarView();
+				void activateSidebarView();
 			},
 		});
 
-		this.addCommand({
-			id: "upsert-entry",
-			name: "Add or Update entry",
-			callback: () => {
-				new ManualEntryModal(this.app).open();
-			},
-		});
+		for (const { key, label, id } of CUSTOM_CODE_BLOCK_COMMANDS) {
+			this.addCommand({
+				id,
+				name: `Insert ${label} code block`,
+				editorCallback: (editor) => {
+					insertCustomCodeBlock(key, editor);
+				},
+			});
+		}
 	}
 
 	private initializeEvents() {
@@ -114,7 +124,7 @@ export default class KeepTheRhythm extends Plugin {
 		);
 		this.registerEvent(
 			this.app.workspace.on("editor-change", (editor, info) => {
-				events.handleEditorChange(editor, info);
+				void events.handleEditorChange(editor, info);
 			}),
 		);
 		this.registerEvent(
@@ -152,23 +162,23 @@ export default class KeepTheRhythm extends Plugin {
 
 	// #region Unloading
 
-	async onunload() {
+	onunload() {
 		window.removeEventListener("focus", this.onFocusHandler);
 		window.removeEventListener("pagehide", this.onPageHideHandler);
 		document.removeEventListener("visibilitychange", this.onVisibilityHandler);
 
 		// Drain pending editor deltas and persist to data.json before
 		// tearing down the scheduler, so a coalesced debounced save
-		// still lands on disk.
-		await this.flushNow();
+		// still lands on disk.  Obsidian does not await onunload, so the
+		// promise is fire-and-forget here.
+		void this.flushNow();
 
 		// Stop reacting to persist signals.
 		this.persistenceScheduler?.dispose();
 		this.persistenceScheduler = null;
 
-		// Back up.  No DB to clear — the in-memory store is
-		// garbage-collected with the plugin.
-		await backupData(preparePersistData(), this.app);
+		this.statusBar?.dispose();
+		this.statusBar = null;
 
 		// Reset the module-level partitioned cache so stale data doesn't
 		// leak into the next plugin load cycle.

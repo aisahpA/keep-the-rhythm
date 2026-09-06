@@ -21,10 +21,70 @@
 
 .ktr__threshold-inputs {
 	.setting-item-control {
-		max-width: 320px;
+		max-width: 340px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 	}
-	input {
-		width: 100%;
+}
+
+.ktr__threshold-solid-info,
+.ktr__threshold-hint {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	line-height: 1.6;
+}
+
+.ktr__threshold-solid-info {
+	.ktr__threshold-solid-warn {
+		color: var(--text-warning);
+	}
+}
+
+.ktr__threshold-slider {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+
+	.ktr__threshold-slider-label {
+		flex: 0 0 auto;
+		width: 56px;
+		font-size: var(--font-ui-small);
+		color: var(--text-muted);
+	}
+
+	.ktr__threshold-slider-input {
+		flex: 1;
+		min-width: 0;
+		accent-color: var(--interactive-accent);
+	}
+
+	.ktr__threshold-slider-value {
+		flex: 0 0 auto;
+		width: 76px;
+		text-align: right;
+		font-size: var(--font-ui-small);
+		font-variant-numeric: tabular-nums;
+		color: var(--text-normal);
+	}
+}
+
+.ktr__start-date-picker {
+	height: var(--input-height);
+	padding: 0 10px;
+	font-size: var(--font-ui-small);
+	border-radius: var(--input-radius);
+	background: var(--background-secondary-alt);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+	color: var(--text-normal);
+
+	&:focus {
+		box-shadow: 0 0 0 2px var(--interactive-accent);
+	}
+
+	&::-webkit-calendar-picker-indicator {
+		cursor: pointer;
 	}
 }
 

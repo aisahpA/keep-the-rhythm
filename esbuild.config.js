@@ -8,7 +8,8 @@ if you want to view the source, please visit the github repository of this plugi
 */
 `;
 
-const prod = process.argv[2] === "production";
+const prod = process.argv.includes("production");
+const watch = process.argv.includes("--watch");
 
 const context = await esbuild.context({
   metafile: true,
@@ -51,7 +52,7 @@ const context = await esbuild.context({
   plugins: [
     sassPlugin({
       type: "css",
-      outputStyle: "compressed",
+      style: "compressed",
     }),
   ],
 });
@@ -61,6 +62,9 @@ if (prod) {
 
   fs.writeFileSync("meta.json", JSON.stringify(result.metafile, null, 2));
   process.exit(0);
+} else if (watch) {
+  await context.watch(); // Watch for file changes in dev mode (npm run dev)
 } else {
-  await context.watch(); // Watch for file changes in dev mode
+  await context.rebuild(); // One-shot dev build (reload.sh)
+  process.exit(0);
 }

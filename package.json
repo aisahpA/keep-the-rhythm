@@ -6,33 +6,40 @@
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.js --watch",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.js production"
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.js production",
+		"test": "node tests/run.mjs",
+		"lint": "eslint .",
+		"lint:fix": "eslint . --fix",
+		"reload": "bash reload.sh"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "MIT",
 	"devDependencies": {
-		"@types/node": "^16.18.126",
-		"@types/react": "^18.3.18",
-		"@types/react-dom": "^18.3.5",
+		"@types/node": "^22.20.1",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.7",
 		"@types/react-transition-group": "^4.4.12",
-		"esbuild": "^0.25.2",
+		"esbuild": "^0.28.2",
 		"esbuild-sass-plugin": "^3.3.1",
+		"eslint": "^9.39.5",
+		"eslint-plugin-obsidianmd": "^0.4.2",
+		"globals": "^17.12.0",
 		"obsidian": "latest",
 		"prettier": "^3.4.2",
-		"tslib": "2.4.0",
-		"typescript": "^4.9.5"
+		"tslib": "2.8.1",
+		"typescript": "^5.9.3"
 	},
 	"dependencies": {
 		"@radix-ui/react-tooltip": "^1.2.3",
 		"jsep": "^1.4.0",
-		"react": "^18.3.1",
-		"react-dom": "^18.3.1",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
 		"react-transition-group": "^4.4.5",
 		"zustand": "^5.0.14"
 	},
 	"allowScripts": {
 		"@parcel/watcher@2.5.1": true,
-		"esbuild@0.25.2": true
+		"esbuild@0.28.2": true
 	}
 }

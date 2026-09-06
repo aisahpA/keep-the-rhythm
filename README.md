@@ -14,6 +14,7 @@ Keep the Rhythm2 is an Obsidian plugin that helps you maintain a consistent writ
 
 - **Heatmap**: View your writing activity over time (helps with consistency and motivation)
 - **Custom Slots**: Various writing statistics (written today, this week, avg. this year, etc.)
+- **Status Bar**: Today's total word count and goal always visible in Obsidian's status bar (click to open the sidebar, toggle in settings)
 - **Entries by Day**: Easily check and navigate to files you have worked on today
 
 - **Embedded Components**: Insert heatmaps, slots, and entries widgets into any note using custom code blocks
@@ -56,7 +57,7 @@ Set and track your daily writing goals:
 
 ### Tracking Scope
 
-By default Keep the Rhythm tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
+By default Keep the Rhythm2 tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
 
 Add one folder at a time: type the folder path (e.g. `20-research`) into the input and click **Add** (or press Enter). Each added folder shows up as a row with a trash button; click the trash button to remove it.
 
@@ -80,7 +81,7 @@ Customize your heatmap appearance with various options:
 
 - Coloring Modes:
     - `gradual`: Smooth gradient between colors
-    - `solid`: Single color intensity
+    - `solid`: Single color intensity — a day is colored (full strength) when its word count reaches your daily writing goal; the threshold follows the Writing Goal setting and does not affect other modes (leaving solid restores the default thresholds)
     - `stops`: Discrete color levels with thresholds
     - `liquid`: Color fills cells from bottom up
 - Cell Shape: Choose between **rounded** (default) or **squared** cells
@@ -101,7 +102,7 @@ Display various writing statistics using customizable slots:
 
 ### Code Blocks
 
-Keep the Rhythm provides three types of embeddable code blocks.
+Keep the Rhythm2 provides three types of embeddable code blocks.
 
 > A block can be created by using the code block syntax (3 backticks on start and end) and a keyword to specify the block type.
 
@@ -120,6 +121,7 @@ STOPS 100, 500, 1000                       // changes the keypoints used for cal
 SQUARED_CELLS                              // changes the cell styling for a more squared look
 ROUNDED_CELLS                              // changes the cell styling for a rounded look
 WEEKS 24                                   // changes how many weeks are displayed (can affect performance)
+CELL_SIZE 14                               // changes the size of each cell in pixels
 ```
 ````
 
@@ -134,6 +136,7 @@ Available Options:
 - `COLORING_MODE`: Set to `liquid`, `stops`, `solid`, or `gradual`
 - `STOPS`: Define threshold values (e.g., `100, 500, 1000`)
 - `SQUARED_CELLS` or `ROUNDED_CELLS`: Control cell appearance
+- `CELL_SIZE`: Cell size in pixels (e.g., `14` for larger cells)
 
 #### Data Slots (`ktr-slots`)
 
@@ -195,6 +198,8 @@ Data is stored **locally** in `data.json` inside the plugin's data folder — no
 
 Since this branch, historical activity is stored as a **dictionary-encoded** map: file paths are replaced by small integer IDs in `days`, and a separate `fileDict` maps IDs back to paths. `today` activity is kept in a separate partition (`todayBaselines`). This reduces the size of multi-month histories by roughly 60–65%.
 
+Daily per-file values are **live deltas** against the day's baseline snapshot (the file's word count when it was first tracked today): they move with the editor and can go **negative** when a file shrinks below its starting count. Negative rows are kept in storage, shown in the entries list, and can be corrected manually at any time.
+
 Old-format data (from the Dexie-based v0.2.12 / `440c357`) is **migrated automatically** on load — you don't need to do anything manually.
 
 ## What Changed vs. v0.2.12
@@ -215,7 +220,7 @@ This branch is a large internal rework of the upstream `keep-the-rhythm` (commit
 - Repository-scoped code (`pluginState.ts`, `devUtils.ts`, `migrateData.ts`).
 
 **Added / improved**
-- **Tracked Folders** setting with a popup manager (`TrackedFoldersSetting.ts`) and path-filtering cache, to restrict tracking to a subset of the vault.
+- **Tracked Folders** setting using Obsidian 1.13 native Settings Lists (`SettingDefinitionList`), with inline add/delete affordances, to restrict tracking to a subset of the vault.
 - **Editor Change Sample Delay** setting (seconds to wait after typing stops before sampling content) with adjustable JSON persistence debounce (2000 ms).
 - **Chinese** option in Enabled Languages (LATIN + CJK scripts).
 - Automatic **backups** (`backup.ts`).

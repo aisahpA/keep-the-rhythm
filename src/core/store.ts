@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { PluginData } from "@/defs/types";
-import { Settings, DEFAULT_SETTINGS } from "@/defs/types";
-import { DayActivityMap, DaysMap } from "@/defs/types";
+import { Settings, DEFAULT_SETTINGS, normalizeSettings } from "@/defs/types";
+import { ActivityCounts, DayActivityMap, DaysMap } from "@/defs/types";
 import { getToday } from "@/utils/dateUtils";
 import { decodeActivities } from "./statsCodec";
 
@@ -73,6 +73,9 @@ export interface KTRState {
 	todayBaselinesDay: string | null;
 	todayVersion: number;
 	historicalVersion: number;
+	/** Bumped on every active-leaf-change — lets CURRENT_FILE slots
+	 *  re-read the editor when the user switches files. */
+	activeFileVersion: number;
 	/** Fast set of all file paths ever tracked — used to short-circuit
 	 *  rename events for files that never appeared in days.  Allowed to
 	 *  have stale entries (false positives are harmless); must never
@@ -94,10 +97,10 @@ export interface KTRState {
 	hydrateFromData: (data: PluginData) => void;
 
 	// ─── Data actions ───
-	/** Write (or overwrite) the words-added counter for [date, filePath]. */
-	upsertAdded: (date: string, filePath: string, added: number) => void;
-	/** Record today's starting word count for a file (todayBaselines). */
-	setBaseline: (filePath: string, baseline: number) => void;
+	/** Write (or overwrite) the words/chars-added counters for [date, filePath]. */
+	upsertAdded: (date: string, filePath: string, added: ActivityCounts) => void;
+	/** Record today's starting word/char count for a file (todayBaselines). */
+	setBaseline: (filePath: string, baseline: ActivityCounts) => void;
 	/** Remove one row by [date+filePath] (and its baseline when date is today). */
 	deleteActivity: (date: string, filePath: string) => void;
 	/** Update filePath on all matching rows. */
@@ -121,6 +124,7 @@ export const useStore = create<KTRState>()(
 		todayBaselinesDay: null,
 		todayVersion: 0,
 		historicalVersion: 0,
+		activeFileVersion: 0,
 		activeFiles: new Set<string>(),
 
 		checkDayChange: () => {
@@ -147,7 +151,7 @@ export const useStore = create<KTRState>()(
 			pendingPersist = true;
 			if (persistRafScheduled) return;
 			persistRafScheduled = true;
-			requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => {
 				persistRafScheduled = false;
 				if (pendingPersist) {
 					pendingPersist = false;
@@ -173,7 +177,7 @@ export const useStore = create<KTRState>()(
 			const today = getToday();
 			const decoded = decodeActivities(data?.stats, today);
 			set({
-				settings: { ...DEFAULT_SETTINGS, ...data?.settings },
+				settings: normalizeSettings(data?.settings),
 				days: decoded.days,
 				todayBaselines: decoded.todayBaselines,
 				todayBaselinesDay: decoded.todayBaselinesDay,
@@ -204,8 +208,16 @@ export const useStore = create<KTRState>()(
 
 		setBaseline: (filePath, baseline) => {
 			const cur = get();
-			if (cur.todayBaselines[filePath] === baseline) return;
+			const existing = cur.todayBaselines[filePath];
+			if (
+				existing &&
+				existing.w === baseline.w &&
+				existing.c === baseline.c
+			) {
+				return;
+			}
 			cur.todayBaselines[filePath] = baseline;
+			cur.activeFiles.add(filePath); // fix the situation where files are renamed right after they are created
 			set({ todayBaselinesDay: cur.today });
 			get().requestPersist();
 		},

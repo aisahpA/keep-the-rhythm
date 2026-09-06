@@ -56,6 +56,7 @@ export function createHeatmapCodeBlock(
 	renderReactCodeBlock(el, ctx, "heatmap-codeblock",
 		React.createElement(Heatmap, {
 			heatmapConfig: query?.options,
+			preferredUnit: query.options.unit,
 			fileFilter: query?.filter,
 			isCodeBlock: true,
 		})
@@ -129,6 +130,7 @@ export function createEntriesCodeBlock(
 		React.createElement(Entries, {
 			date,
 			filters,
+			preferredUnit: useStore.getState().settings.preferredUnit,
 		})
 	);
 }

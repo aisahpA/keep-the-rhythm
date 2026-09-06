@@ -1,5 +1,5 @@
-import { DEFAULT_SETTINGS, PluginData } from "@/defs/types";
-import { DayActivityMap, DaysMap } from "@/defs/types";
+import { PluginData, normalizeSettings } from "@/defs/types";
+import { ActivityCounts, DayActivityMap, DaysMap } from "@/defs/types";
 import { useStore } from "./store";
 import { decodeActivities, collectActiveFiles } from "./statsCodec";
 import KeepTheRhythm from "../main";
@@ -26,14 +26,14 @@ import { Notice } from "obsidian";
 export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 	try {
 		// 1. 先读盘 —— 外部数据现在活在内存里了
-		const newData = await plugin.loadData();
+		const newData = (await plugin.loadData()) as PluginData | null;
 		if (!newData) return;
 
 		const cur = useStore.getState();
 		const today = cur.today;
 
 		// 2. settings: 外部覆盖,并上 defaults 兜底
-		const newSettings = { ...DEFAULT_SETTINGS, ...newData.settings };
+		const newSettings = normalizeSettings(newData.settings);
 
 		// 3. 解码外部 (含 legacy 迁移)
 		const ext = decodeActivities(newData.stats, today);
@@ -47,7 +47,10 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 			const mergedDay: DayActivityMap = {};
 			for (const [filePath, extAdded] of Object.entries(extDay)) {
 				const localAdded = localDay?.[filePath];
-				const localWon = localAdded !== undefined && localAdded >= extAdded;
+				const localWon =
+					localAdded !== undefined &&
+					(localAdded.w >= extAdded.w &&
+						localAdded.c >= extAdded.c);
 				mergedDay[filePath] = localWon ? localAdded : extAdded;
 				if (date === today) localWonToday[filePath] = localWon;
 			}
@@ -57,7 +60,7 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 		// 5. 联动合并当天 baseline
 		const mergedBaselines: DayActivityMap = {};
 		for (const filePath of Object.keys(mergedDays[today] ?? {})) {
-			let baseline: number | undefined;
+			let baseline: ActivityCounts | undefined;
 			if (localWonToday[filePath]) {
 				if (cur.todayBaselinesDay === today) {
 					baseline = cur.todayBaselines[filePath];
@@ -135,7 +138,9 @@ function dayMapsEqual(a: DayActivityMap, b: DayActivityMap): boolean {
 	const bKeys = Object.keys(b);
 	if (aKeys.length !== bKeys.length) return false;
 	for (const k of aKeys) {
-		if (a[k] !== b[k]) return false;
+		const av = a[k];
+		const bv = b[k];
+		if (av.w !== bv.w || av.c !== bv.c) return false;
 	}
 	return true;
 }

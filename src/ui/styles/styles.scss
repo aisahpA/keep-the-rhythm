@@ -26,12 +26,7 @@
 // }
 
 .heatmap-codeblock {
-	width: fit-content;
-	max-width: 100%;
-
-	& > * {
-		width: fit-content;
-	}
+	width: 100%;
 }
 
 // MODAL
@@ -48,6 +43,12 @@
 
 .KTR__modal .modal .modal-header {
 	margin: 0;
+}
+
+.ktr-language-picker-list {
+	max-height: 50vh;
+	overflow-y: auto;
+	margin: 8px 0;
 }
 
 .KTR__file-to-delete {
