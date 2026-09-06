@@ -1,39 +1,32 @@
-import { defineConfig } from 'eslint/config';
-import globals from 'globals';
 import obsidianmd from 'eslint-plugin-obsidianmd';
+import globals from 'globals';
+import { globalIgnores, defineConfig } from 'eslint/config';
 
-// Official Obsidian plugin-review lint setup:
-// https://github.com/obsidianmd/eslint-plugin
-// `recommended` already bundles eslint core + typescript-eslint type-checked
-// rules + Obsidian-specific rules — don't add those presets separately.
-export default defineConfig([
-	// The vitest suite lives outside the build tsconfig (excluded there), so
-	// the type-checked rules can't resolve it; lint covers shipped sources.
-	{ ignores: ['main.js', 'node_modules/', 'tests/', 'vitest.config.mts'] },
-	...obsidianmd.configs.recommended,
-	{
-		// Node-only build scripts: Obsidian runtime rules don't apply.
-		files: ['rollup.config.mjs', 'version-bump.mjs', 'esbuild.config.js'],
-		languageOptions: {
-			globals: { ...globals.node },
-		},
-		rules: {
-			// Preset aliases core `no-console` under this name.
-			'obsidianmd/rule-custom-message': 'off',
-			'obsidianmd/no-nodejs-modules': 'off',
-		},
-	},
+export default defineConfig(
+	globalIgnores([
+		'node_modules',
+		'dist',
+		'esbuild.config.js',
+		'version-bump.mjs',
+		'versions.json',
+		'main.js',
+		'package.json',
+		'package-lock.json',
+		'tsconfig.json',
+	]),
 	{
 		languageOptions: {
+			globals: {
+				...globals.browser,
+			},
 			parserOptions: {
 				projectService: {
-					allowDefaultProject: [
-						'eslint.config.*',
-						'esbuild.config.js',
-						'version-bump.mjs',
-					],
+					allowDefaultProject: ['eslint.config.mjs', 'manifest.json'],
 				},
+				tsconfigRootDir: import.meta.dirname,
+				extraFileExtensions: ['.json'],
 			},
 		},
 	},
-]);
+	...obsidianmd.configs.recommended,
+);

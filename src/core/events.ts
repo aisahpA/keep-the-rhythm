@@ -134,7 +134,7 @@ async function runPendingEditorChange(): Promise<void> {
 			cur.upsertAdded(cur.today, filePath, delta);
 		}
 	} catch (error) {
-		console.error(`KTR failed sampling ${filePath} | ${error}`);
+		console.error("KTR failed sampling", filePath, error);
 	}
 }
 
@@ -149,7 +149,7 @@ export function handleFileDelete(file: TFile) {
 		if (st.settings.ignoreDeletedFiles) return;
 		st.deleteActivity(st.today, file.path);
 	} catch (error) {
-		console.error(`KTR failed deleting ${file.path} | ${error}`);
+		console.error("KTR failed deleting", file.path, error);
 	}
 }
 
@@ -159,6 +159,6 @@ export function handleFileRename(file: TFile, oldPath: string) {
 	try {
 		store().renameFilePath(oldPath, file.path);
 	} catch (error) {
-		console.error(`KTR failed renaming ${file.path} | ${error}`);
+		console.error("KTR failed renaming", file.path, error);
 	}
 }
