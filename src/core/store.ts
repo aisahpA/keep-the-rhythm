@@ -94,7 +94,7 @@ export interface KTRState {
 	/** Mutate settings draft in-place, request persist. */
 	mutateSettings: (updater: (draft: Settings) => void) => void;
 	/** Hydrate store from loaded data.json (used on boot and after external changes). */
-	hydrateFromData: (data: PluginData) => void;
+	hydrateFromData: (data: PluginData | null) => void;
 
 	// ─── Data actions ───
 	/** Write (or overwrite) the words/chars-added counters for [date, filePath]. */

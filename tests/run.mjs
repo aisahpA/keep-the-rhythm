@@ -1,16 +1,18 @@
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 
-await build({
-	entryPoints: ["tests/wordCounting.test.ts"],
-	bundle: true,
-	platform: "node",
-	alias: { "@": "./src", obsidian: "./tests/obsidian-stub.ts" },
-	format: "cjs",
-	outfile: "/tmp/wordCounting.test.cjs",
-});
+const tests = ["tests/wordCounting.test.ts", "tests/externalSync.test.ts"];
 
-const result = spawnSync("node", ["/tmp/wordCounting.test.cjs"], {
-	stdio: "inherit",
-});
-process.exit(result.status ?? 1);
+for (const entry of tests) {
+	const outfile = `/tmp/${entry.split("/").pop().replace(".ts", "")}.cjs`;
+	await build({
+		entryPoints: [entry],
+		bundle: true,
+		platform: "node",
+		alias: { "@": "./src", obsidian: "./tests/obsidian-stub.ts" },
+		format: "cjs",
+		outfile,
+	});
+	const result = spawnSync("node", [outfile], { stdio: "inherit" });
+	if (result.status !== 0) process.exit(result.status ?? 1);
+}

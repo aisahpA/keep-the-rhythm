@@ -11,7 +11,7 @@ import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
 import { activateSidebarView, insertCustomCodeBlock } from "@/core/commands";
 import { CUSTOM_CODE_BLOCK_COMMANDS } from "@/core/codeBlockTemplates";
-import { snapshotRawDataFile } from "@/core/backup";
+import { snapshotRawDataFile, restoreFromBackupIfEmpty } from "@/core/backup";
 import {
 	setupPersistenceScheduling,
 	PersistenceScheduler,
@@ -43,15 +43,20 @@ export default class KeepTheRhythm extends Plugin {
 		// we hydrate it from data.json below.
 		const loadedData = (await this.loadData()) as PluginData;
 
+		// Boot guard: if data.json was wiped (e.g. transient sync deletion),
+		// repair it from the newest backup BEFORE hydrating — hydrating an
+		// empty store would persist the loss on the first keystroke.
+		const data = await restoreFromBackupIfEmpty(this, this.app, loadedData);
+
 		// Sync Zustand store with loaded data before any React
 		// component mounts.  After this point, store.settings /
 		// store.today are all populated.
-		useStore.getState().hydrateFromData(loadedData);
+		useStore.getState().hydrateFromData(data);
 
 		// Snapshot the on-disk data.json BEFORE anything can overwrite it
 		// (hydrate → persist).  Write-once per day: the retained copy is
 		// always the pre-reset state captured at the first open.
-		await snapshotRawDataFile(this, this.app, loadedData);
+		await snapshotRawDataFile(this, this.app, data);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {

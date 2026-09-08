@@ -45,6 +45,61 @@ export async function snapshotRawDataFile(
 }
 
 /**
+ * Boot-time guard: if data.json is missing or carries no activity rows
+ * while backups exist, the file was wiped out from under the plugin
+ * (transient sync deletion / partial sync write).  Hydrating an empty
+ * store here would persist near-empty data on the first keystroke and
+ * destroy the history.  Returns the newest non-empty backup content
+ * (also written back to data.json), or the original data for a genuine
+ * first run / healthy load.
+ */
+export async function restoreFromBackupIfEmpty(
+	plugin: Plugin,
+	app: App,
+	loadedData: PluginData | null,
+): Promise<PluginData | null> {
+	const stats = loadedData?.stats;
+	const hasNoActivity =
+		loadedData == null ||
+		stats == null ||
+		(stats.days == null && (stats.dailyActivity?.length ?? 0) === 0);
+	if (!hasNoActivity) return loadedData;
+
+	const folderPath =
+		loadedData?.settings?.backupConfig?.folderPath || ".keep-the-rhythm2";
+
+	try {
+		if (!(await app.vault.adapter.exists(folderPath))) return loadedData;
+		const { files } = await app.vault.adapter.list(folderPath);
+		// Newest first — ISO dates sort lexically (same rule as pruning).
+		const candidates = files
+			.map((f) => f.split("/").pop() ?? "")
+			.filter((n) => BACKUP_DATE_RE.test(n))
+			.sort()
+			.reverse();
+
+		for (const name of candidates) {
+			try {
+				const parsed = JSON.parse(
+					await app.vault.adapter.read(`${folderPath}/${name}`),
+				) as PluginData;
+				if (parsed?.stats?.days && Object.keys(parsed.stats.days).length > 0) {
+					await plugin.saveData(parsed); // repair data.json before anything else writes
+					console.warn(`KTR: data.json was empty — restored from ${name}`);
+					new Notice(`KTR: data.json was empty — restored from ${name}.`);
+					return parsed;
+				}
+			} catch (err) {
+				console.error(`KTR restore from ${name} failed:`, err);
+			}
+		}
+	} catch (err) {
+		console.error("KTR restore check failed:", err);
+	}
+	return loadedData;
+}
+
+/**
  * Keep backups of the newest `maxDays` distinct dates, delete the rest.
  * Pruning is per-DAY, not per-file, so any number of same-day restarts can
  * never evict previous days' backups.  Dates are ISO strings, so a lexical

@@ -38,6 +38,28 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 		// 3. 解码外部 (含 legacy 迁移)
 		const ext = decodeActivities(newData.stats, today);
 
+		// Guard: an external file with NO recoverable activity rows is not
+		// a deletion manifest.  Sync clients can transiently deliver an
+		// empty or partially-written data.json; trusting it here would drop
+		// every local-only row and the requestPersist below would write the
+		// wipe to disk.  Real deletions still propagate whenever the
+		// external file contains at least one row.
+		const extRowCount = Object.values(ext.days).reduce(
+			(n, d) => n + Object.keys(d).length,
+			0,
+		);
+		if (extRowCount === 0 && Object.keys(cur.days).length > 0) {
+			console.warn(
+				"KTR: external data.json has no activity rows — keeping local data.",
+			);
+			new Notice("KTR: external data.json looked empty — local data kept.");
+			if (JSON.stringify(newSettings) !== JSON.stringify(cur.settings)) {
+				useStore.setState({ settings: newSettings });
+				useStore.getState().requestPersist();
+			}
+			return;
+		}
+
 		// 4. 行级合并 days —— 同 key 取新增字数大者,本地独有行丢弃
 		//    (尊重外部删除)。今天的赢家是谁单独记录,用于联动 baseline。
 		const mergedDays: DaysMap = {};
