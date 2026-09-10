@@ -190,11 +190,12 @@ Access comprehensive customization options through the plugin settings:
 - Set an **Editor Change Sample Delay** (seconds to wait after typing stops before sampling content)
 - Manage **Tracked Folders** via a dedicated popup manager
 - Toggle visibility of different plugin components
+- Choose where the **stats data file** is stored (Settings → Data Storage)
 - Configure automatic backups
 
 ## Storage and Migration
 
-Data is stored **locally** in `data.json` inside the plugin's data folder — nothing is sent to external servers.
+Data is stored **locally** — nothing is sent to external servers. Configuration lives in `data.json` inside the plugin's data folder (Obsidian-managed); your writing statistics live in a **separate stats data file** (default `stats.json`, next to `data.json`). The location of that file can be changed to any vault-relative path under **Settings → Data Storage** — switching merges an existing file at the target (larger daily values win) and removes the old one.
 
 Since this branch, historical activity is stored as a **dictionary-encoded** map: file paths are replaced by small integer IDs in `days`, and a separate `fileDict` maps IDs back to paths. `today` activity is kept in a separate partition (`todayBaselines`). This reduces the size of multi-month histories by roughly 60–65%.
 
@@ -232,7 +233,7 @@ This branch is a large internal rework of the upstream `keep-the-rhythm` (commit
 
 ## Data and Privacy
 
-Keep the Rhythm2 **stores all data locally** in your Obsidian vault. No data is sent to external servers. Your writing statistics are saved in a JSON file within the plugin's data directory.
+Keep the Rhythm2 **stores all data locally** in your Obsidian vault. No data is sent to external servers. Your writing statistics are saved in the configurable stats data file (default: `stats.json` in the plugin's data directory).
 
 ## Support
 

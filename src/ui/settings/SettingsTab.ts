@@ -6,9 +6,15 @@ import {
   SettingDefinitionItem,
   FuzzySuggestModal,
   TFolder,
+  TextComponent,
+  Notice,
 } from "obsidian";
 import { Settings, HeatmapColorModes } from "@/defs/types";
 import { useStore } from "@/core/store";
+import {
+  defaultStatsFilePath,
+  switchStatsFile,
+} from "@/core/dataPersistence";
 import {
   createLanguageDropdown,
   createColorModeSettings,
@@ -24,8 +30,11 @@ export function getSettingsTab(): SettingsTab | null {
 
 export class SettingsTab extends PluginSettingTab {
 
+  private plugin: Plugin;
+
   constructor(app: App, plugin: Plugin) {
     super(app, plugin);
+    this.plugin = plugin;
     SettingsTab.register(this);
   }
 
@@ -287,6 +296,51 @@ export class SettingsTab extends PluginSettingTab {
             control: {
               type: "toggle",
               key: "statusBar.enabled",
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Data Storage",
+        items: [
+          {
+            name: "Stats Data File",
+            desc: "Vault-relative path (including the file name) where the writing statistics are stored. Leave empty for the default location next to the plugin's settings file. Switching to a path with an existing file merges it (larger daily values win) and removes the old file.",
+            render: (setting: Setting) => {
+              let text: TextComponent;
+              const confirm = async () => {
+                const value = text.getValue().trim();
+                if (await switchStatsFile(this.plugin, value)) {
+                  new Notice(
+                    value === ""
+                      ? "Ktr: using the default data file location."
+                      : `KTR: data file set to ${value}.`,
+                  );
+                  this.update();
+                }
+              };
+              setting.addText((t) => {
+                text = t;
+                t.setPlaceholder(defaultStatsFilePath(this.plugin));
+                t.setValue(this.settings.statsFileName || "");
+              }).addExtraButton((btn) => {
+                btn
+                  .setIcon("check")
+                  .setTooltip("Confirm path")
+                  .onClick(() => {
+                    void confirm();
+                  });
+              });
+            },
+          },
+          {
+            name: "Stored History",
+            render: (setting: Setting) => {
+              const days = Object.keys(useStore.getState().days).length;
+              setting.setDesc(
+                `${days} day${days === 1 ? "" : "s"} of writing history on record.`,
+              );
             },
           },
         ],

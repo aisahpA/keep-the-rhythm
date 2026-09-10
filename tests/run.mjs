@@ -1,7 +1,11 @@
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 
-const tests = ["tests/wordCounting.test.ts", "tests/externalSync.test.ts"];
+const tests = [
+	"tests/wordCounting.test.ts",
+	"tests/externalSync.test.ts",
+	"tests/statsFile.test.ts",
+];
 
 for (const entry of tests) {
 	const outfile = `/tmp/${entry.split("/").pop().replace(".ts", "")}.cjs`;

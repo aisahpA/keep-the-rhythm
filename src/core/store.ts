@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import { PluginData } from "@/defs/types";
-import { Settings, DEFAULT_SETTINGS, normalizeSettings } from "@/defs/types";
+import { PersistedStats, PluginData } from "@/defs/types";
+import { Settings, DEFAULT_SETTINGS } from "@/defs/types";
 import { ActivityCounts, DayActivityMap, DaysMap } from "@/defs/types";
 import { getToday } from "@/utils/dateUtils";
 import { decodeActivities } from "./statsCodec";
@@ -54,10 +54,12 @@ import { decodeActivities } from "./statsCodec";
  *   • historicalVersion  — increments when non-today data changes
  *
  * Data flow:
- *   Boot:    data.json → hydrateFromData → store (decoded via statsCodec)
+ *   Boot:    data.json (settings) + stats file → hydrateFromData → store
  *   Runtime: mutations → store.requestPersist() → persistVersion++
- *            dataPersistence builds PluginData from store → saveData() → data.json
- *   External: onExternalSettingsChange → direct store update
+ *            dataPersistence builds payloads from store → settings go to
+ *            data.json, stats go to the configurable stats file
+ *   External: onExternalSettingsChange (settings) / stats-file mtime
+ *            check (focus, pre-write) → direct store update
  *
  * What does NOT live here:
  *   • plugin reference  — see pluginRegistry.ts (service locator)
@@ -93,8 +95,10 @@ export interface KTRState {
 	checkDayChange: () => void;
 	/** Mutate settings draft in-place, request persist. */
 	mutateSettings: (updater: (draft: Settings) => void) => void;
-	/** Hydrate store from loaded data.json (used on boot and after external changes). */
-	hydrateFromData: (data: PluginData | null) => void;
+	/** Hydrate store from the settings file + stats file (boot and re-hydration). */
+	hydrateFromData: (
+		data: (PluginData & { stats?: PersistedStats }),
+	) => void;
 
 	// ─── Data actions ───
 	/** Write (or overwrite) the words/chars-added counters for [date, filePath]. */
@@ -177,7 +181,7 @@ export const useStore = create<KTRState>()(
 			const today = getToday();
 			const decoded = decodeActivities(data?.stats, today);
 			set({
-				settings: normalizeSettings(data?.settings),
+				settings: data?.settings,
 				days: decoded.days,
 				todayBaselines: decoded.todayBaselines,
 				todayBaselinesDay: decoded.todayBaselinesDay,
