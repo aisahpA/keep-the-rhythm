@@ -4,7 +4,6 @@ import { formatDate } from "@/utils/dateUtils";
 import { getStatsFilePath, readStatsFile } from "./dataPersistence";
 
 const DEFAULT_BACKUP_DAYS = 7;
-const DEFAULT_SCHEMA = "1.0";
 const BACKUP_DATE_RE = /^backup-(\d{4}-\d{2}-\d{2})(?:-[\w\d.]+)?\.json$/;
 
 /**
@@ -50,7 +49,7 @@ export async function snapshotRawDataFile(
 		new Notice("Ktr: New backup saved.");
 	} catch (err) {
 		console.error("KTR Error trying to create backup: ", err);
-		new Notice("Ktr: Backup failed — see developer console for details.");
+		new Notice("KTR: Backup failed — see developer console for details.", 0);
 	}
 
 	await cleanOlderBackups(folderPath, config.maxNumberOfBackups ?? DEFAULT_BACKUP_DAYS, app);
@@ -76,7 +75,7 @@ export async function loadStatsData(
 	const restored = await newestBackupStats(plugin.app, settings);
 	if (!restored) return statsData;
 	console.warn("KTR: stats file was empty — restored from backup");
-	new Notice("Ktr: stats file was empty — restored from backup.");
+	new Notice("KTR: stats file was empty — restored from backup.", 0);
 	return restored;
 }
 
@@ -103,7 +102,7 @@ async function newestBackupStats(
 				) as StatsFileData;
 				if (parsed?.stats?.days && Object.keys(parsed.stats.days).length > 0) {
 					return {
-						schema: parsed.schema ?? DEFAULT_SCHEMA,
+						schema: parsed.schema,
 						stats: parsed.stats,
 					};
 				}

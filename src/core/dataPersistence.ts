@@ -5,7 +5,7 @@ import { useStore } from "./store";
 import { encodePersistedStats } from "./statsCodec";
 import { mergeExternalStats } from "./externalSync";
 
-const JSON_SCHEMA = "0.5";
+const JSON_SCHEMA = "1.0";
 const JSON_DEBOUNCE_TIME = 2000;
 
 // ─── Stats data file paths ───

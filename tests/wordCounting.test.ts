@@ -7,7 +7,7 @@ import {
 } from "@/core/wordCounting";
 
 const LATIN = ["LATIN"] as Language[];
-const LATIN_CJK = ["LATIN", "CJK"] as Language[];
+const LATIN_CHINESE = ["LATIN", "CHINESE"] as Language[];
 
 function main() {
 	const words = (text: string, langs: Language[] = LATIN) =>
@@ -21,8 +21,8 @@ function main() {
 	assert.strictEqual(words("don't mother-in-law snake_case e.g. Ph.D."), 5);
 
 	// ─── Char-based scripts ───
-	assert.strictEqual(words("你好世界", LATIN_CJK), 4);
-	assert.strictEqual(words("中文 hello", LATIN_CJK), 3);
+	assert.strictEqual(words("你好世界", LATIN_CHINESE), 4);
+	assert.strictEqual(words("中文 hello", LATIN_CHINESE), 3);
 
 	// ─── URL / email are one word ───
 	assert.strictEqual(words("visit https://example.com/path?a=1 now"), 3);
@@ -67,8 +67,8 @@ function main() {
 
 	// ─── createRegex caching ───
 	assert.strictEqual(createRegex(LATIN), createRegex(LATIN));
-	assert.strictEqual(createRegex(LATIN_CJK), createRegex(LATIN_CJK));
-	assert.notStrictEqual(createRegex(LATIN), createRegex(LATIN_CJK));
+	assert.strictEqual(createRegex(LATIN_CHINESE), createRegex(LATIN_CHINESE));
+	assert.notStrictEqual(createRegex(LATIN), createRegex(LATIN_CHINESE));
 }
 
 main();

@@ -6,7 +6,7 @@ const UNICODE_RANGES = {
 	// The old \u0041-\u007A span also covered [ \ ] ^ _ ` and the old
 	// \u00A0-\u024F span covered NBSP and symbols such as ¡ § © « ¬ ± × ÷.
 	LATIN: "A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F",
-	CJK: "\\u4E00-\\u9FFF\\u3400-\\u4DBF",
+	CHINESE: "\\u4E00-\\u9FFF\\u3400-\\u4DBF",
 	JAPANESE: "\\u3041-\\u309F\\u30A0-\\u30FF",
 	KOREAN: "\\uAC00-\\uD7AF",
 	CYRILLIC: "\\u0400-\\u052F",
@@ -19,7 +19,7 @@ const UNICODE_RANGES = {
 } as const;
 
 const CHAR_BASED_SCRIPTS: Language[] = [
-	"CJK",
+	"CHINESE",
 	"JAPANESE",
 	"KOREAN",
 ] as Language[];

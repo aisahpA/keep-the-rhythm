@@ -2,8 +2,8 @@ import { App, Modal, Setting } from "obsidian";
 import { Language } from "@/defs/types";
 
 export const LANGUAGE_LABELS: Record<Language, string> = {
-  LATIN: "Latin (English, French, German, Spanish…)",
-  CJK: "Chinese (CJK)",
+  LATIN: "Latin (English, French…)",
+  CHINESE: "Chinese",
   JAPANESE: "Japanese",
   KOREAN: "Korean",
   CYRILLIC: "Cyrillic (Russian, Ukrainian…)",

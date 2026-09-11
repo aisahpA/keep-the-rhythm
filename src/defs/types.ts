@@ -81,7 +81,7 @@ export enum CalculationType {
 
 export type Language =
 	| "LATIN"
-	| "CJK"
+	| "CHINESE"
 	| "JAPANESE"
 	| "KOREAN"
 	| "CYRILLIC"
