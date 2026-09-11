@@ -104,17 +104,6 @@ export class SettingsTab extends PluginSettingTab {
             },
           },
           {
-            name: "Editor Change Sample Delay",
-            desc: "Seconds to wait after typing stops before sampling editor content for word count. Higher values reduce overhead but delay live stats.",
-            control: {
-              type: "slider",
-              key: "editorChangeSampleDelay",
-              min: 0.5,
-              max: 10,
-              step: 0.5,
-            },
-          },
-          {
             type: "page",
             name: "Tracked Folders",
             desc: "Only track files under these folders. Leave empty to track the whole vault.",

@@ -134,12 +134,6 @@ export interface Settings {
 	dailyWritingGoal: number;
 	/** Default unit used when displaying counts (words or characters). */
 	preferredUnit: Unit;
-	/**
-	 * Debounce delay for sampling editor content on keystroke, in seconds.
-	 * After the user stops typing for this long, the current editor state
-	 * is read and word deltas are computed.
-	 */
-	editorChangeSampleDelay: number;
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
 	/** Skip Obsidian comments (%% ... %%) when counting words/chars. */
 	ignoreComments: boolean;
@@ -253,7 +247,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
 	preferredUnit: Unit.WORD,
-	editorChangeSampleDelay: 2,
 	ignoreComments: false,
 	ignoreTasks: false,
 	ignoreDeletedFiles: false,

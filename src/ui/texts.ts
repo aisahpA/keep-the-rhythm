@@ -19,7 +19,7 @@ export const monthNames = [
 export function getSlotLabel(option: TargetCount) {
 	switch (option) {
 		case TargetCount.CURRENT_FILE:
-			return "Current File";
+			return "This File";
 		case TargetCount.CURRENT_DAY:
 			return "Today";
 		case TargetCount.CURRENT_WEEK:

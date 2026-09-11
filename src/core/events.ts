@@ -4,6 +4,7 @@ import {
 	Editor,
 	WorkspaceLeaf,
 	MarkdownView,
+	debounce,
 	type MarkdownFileInfo,
 } from "obsidian";
 import { getCountsFromContent } from "@/core/baselines";
@@ -17,21 +18,21 @@ import { isPathTracked } from "./pathFilter";
 // switches tabs while the first file's async disk read is still in flight.
 const updatingFiles = new Set<string>();
 
-let editorChangeTimer: number | null = null;
-let pendingEditor: Editor | null = null;
 type FileChangeInfo = MarkdownView | MarkdownFileInfo;
-let pendingInfo: FileChangeInfo | null = null;
 
 const store = () => useStore.getState();
 
+// Sample at most once per second, using the latest editor state. resetTimer
+// = false makes it a throttle: the count refreshes while typing (bounded to
+// ~1s staleness) instead of waiting for a pause.
+const runEditorSample = debounce(
+	(editor: Editor, info: FileChangeInfo) => runPendingEditorChange(editor, info),
+	1000,
+	false,
+);
+
 function isMarkdown(file: TFile | null | undefined): file is TFile {
 	return !!file && file.extension === "md";
-}
-
-// Debounce delay from settings, clamped to [500ms, +∞).
-function getEditorChangeDelayMs(): number {
-	const delay = store().settings.editorChangeSampleDelay ?? 2;
-	return Math.max(delay, 0.5) * 1000;
 }
 
 async function ensureActivityExists(file: TFile) {
@@ -83,32 +84,17 @@ export async function handleEditorChange(
 	}
 
 	await ensureActivityExists(file);
-
-	pendingEditor = editor;
-	pendingInfo = info;
-
-	if (editorChangeTimer) window.clearTimeout(editorChangeTimer);
-	const delayMs = getEditorChangeDelayMs();
-	editorChangeTimer = window.setTimeout(() => {
-		editorChangeTimer = null;
-		void runPendingEditorChange();
-	}, delayMs);
+	runEditorSample(editor, info);
 }
 
 export async function flushPendingEditorChange(): Promise<void> {
-	if (!editorChangeTimer) return;
-	window.clearTimeout(editorChangeTimer);
-	editorChangeTimer = null;
-	await runPendingEditorChange();
+	await runEditorSample.run();
 }
 
-async function runPendingEditorChange(): Promise<void> {
-	const editor = pendingEditor;
-	const info = pendingInfo;
-	pendingEditor = null;
-	pendingInfo = null;
-	if (!editor || !info) return;
-
+async function runPendingEditorChange(
+	editor: Editor,
+	info: FileChangeInfo,
+): Promise<void> {
 	const filePath = info.file?.path;
 	if (!filePath) return;
 
