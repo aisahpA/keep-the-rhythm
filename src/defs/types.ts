@@ -3,6 +3,18 @@ export enum Unit {
 	CHAR = "CHAR",
 }
 
+/** How count units are rendered in the UI. */
+export enum UnitDisplay {
+	TEXT = "TEXT",
+	ICON = "ICON",
+}
+
+/** A value (icon id or label) per count unit. */
+export interface UnitStrings {
+	WORD: string;
+	CHAR: string;
+}
+
 /**
  * The two counts tracked per (date, filePath): words added and characters
  * added that day.  Stored together so both the word and char views of any
@@ -74,16 +86,6 @@ export interface PersistedBaselines {
 	baselines: Record<string, ActivityCounts>;
 }
 
-/**
- * Legacy row shape. Only read during migration to the `days` format.
- */
-export interface LegacyActivityData {
-	date: string;
-	filePath: string;
-	wordCountStart: number;
-	wordsAdded: number;
-}
-
 export enum CalculationType {
 	TOTAL = "TOTAL",
 	AVG = "AVG",
@@ -91,7 +93,7 @@ export enum CalculationType {
 
 export type Language =
 	| "LATIN"
-	| "CJK"
+	| "CHINESE"
 	| "JAPANESE"
 	| "KOREAN"
 	| "CYRILLIC"
@@ -144,12 +146,12 @@ export interface Settings {
 	dailyWritingGoal: number;
 	/** Default unit used when displaying counts (words or characters). */
 	preferredUnit: Unit;
-	/**
-	 * Debounce delay for sampling editor content on keystroke, in seconds.
-	 * After the user stops typing for this long, the current editor state
-	 * is read and word deltas are computed.
-	 */
-	editorChangeSampleDelay: number;
+	/** Whether count units are shown as text or as an icon. */
+	unitDisplay: UnitDisplay;
+	/** Lucide icon id per unit, used when unitDisplay is ICON. */
+	unitIcons: UnitStrings;
+	/** Custom label per unit, used when unitDisplay is TEXT (empty = localized default). */
+	unitTexts: UnitStrings;
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
 	/** Skip Obsidian comments (%% ... %%) when counting words/chars. */
 	ignoreComments: boolean;
@@ -163,6 +165,12 @@ export interface Settings {
 	 * tracked. Leave empty to track the whole vault (default behaviour).
 	 */
 	trackedFolders: string[];
+	/**
+	 * Vault-relative path (including the file name) of the stats data file.
+	 * Empty = default location (`stats.json` next to data.json in the
+	 * plugin folder). See dataPersistence.switchStatsFile.
+	 */
+	statsFileName: string;
 	startOfTheWeek: "MONDAY" | "SUNDAY"; // not used yet, should be used to offset start of the week calculations and heatmap
 	heatmapConfig: HeatmapConfig;
 	heatmapNavigation: boolean;
@@ -196,33 +204,39 @@ export interface SlotConfig {
 
 export interface PluginData {
 	settings: Settings;
-	migratedPreviousVersion?: boolean;
 	schema?: string;
-	stats?: {
-		/**
-		 * Path → numeric ID dictionary for the dictionary-encoded `days`
-		 * format.  Present (and valid) only when `days` uses numeric
-		 * keys; absent in the legacy plain-path format.
-		 */
-		fileDict?: PersistedFileDict;
-		/**
-		 * date → filePath → words added that day. Includes the current
-		 * day; yesterday-and-older rows only carry the added count (the
-		 * per-file wordCountStart lives exclusively in `todayBaselines`).
-		 *
-		 * On disk this may be dictionary-encoded (keys are numeric IDs,
-		 * with `fileDict` providing the path mapping).  At runtime it is
-		 * always expanded to full paths — the decode step in statsCodec
-		 * handles both shapes transparently.
-		 */
-		days?: Record<string, DayActivityMap> | PersistedDaysMap;
-		/** Baselines for today's live files (see PersistedBaselines).
-		 *  Same dictionary-encoding rule as `days`: keys are numeric IDs
-		 *  when `fileDict` is present, file paths otherwise. */
-		todayBaselines?: PersistedBaselines;
-		/** Legacy v1.x storage — migrated into `days` on load. */
-		dailyActivity?: LegacyActivityData[];
-	};
+}
+
+/**
+ * The persisted stats partition — the payload of the dedicated stats
+ * data file.
+ */
+export interface PersistedStats {
+	/**
+	 * Path → numeric ID dictionary for the dictionary-encoded `days`
+	 * format.
+	 */
+	fileDict?: PersistedFileDict;
+	/**
+	 * date → filePath → words added that day. Includes the current
+	 * day; yesterday-and-older rows only carry the added count (the
+	 * per-file wordCountStart lives exclusively in `todayBaselines`).
+	 *
+	 * On disk this is dictionary-encoded (keys are numeric IDs, with
+	 * `fileDict` providing the path mapping).  At runtime it is always
+	 * expanded to full paths — the decode step in statsCodec handles
+	 * that.
+	 */
+	days?: PersistedDaysMap;
+	/** Baselines for today's live files (see PersistedBaselines). */
+	todayBaselines?: PersistedBaselines;
+}
+
+/** The stats partition's own on-disk file (defaults to `stats.json`
+ *  next to data.json; location configured via `Settings.statsFileName`). */
+export interface StatsFileData {
+	schema?: string;
+	stats?: PersistedStats;
 }
 
 
@@ -236,6 +250,7 @@ export interface HeatmapConfig {
 	hideMonthLabels: boolean;
 	hideWeekdayLabels: boolean;
 	alignLeft: boolean;
+	center?: boolean;
 	startDate?: string;
 	intensityStops: {
 		low: number;
@@ -251,11 +266,14 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
 	preferredUnit: Unit.WORD,
-	editorChangeSampleDelay: 2,
+	unitDisplay: UnitDisplay.TEXT,
+	unitIcons: { WORD: "type", CHAR: "case-sensitive" },
+	unitTexts: { WORD: "", CHAR: "" },
 	ignoreComments: false,
 	ignoreTasks: false,
 	ignoreDeletedFiles: false,
 	trackedFolders: [],
+	statsFileName: "",
 	startOfTheWeek: "SUNDAY",
 	heatmapNavigation: true,
 	heatmapConfig: {
@@ -326,59 +344,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /**
- * Backfill settings loaded from disk (which may predate newer fields) with
- * the current defaults.  A shallow spread is enough for scalar settings;
- * the nested `slots` array is normalized field-by-field so an older saved
- * slot without a `unit` still gets one.
+ * Merge settings loaded from disk (possibly missing entirely, e.g. a
+ * fresh install) with the shipped defaults.
  */
 export function normalizeSettings(
 	saved: Partial<Settings> | undefined,
 ): Settings {
-	const merged: Settings = { ...DEFAULT_SETTINGS, ...saved };
-
-	if (saved?.heatmapConfig) {
-		merged.heatmapConfig = {
-			...DEFAULT_SETTINGS.heatmapConfig,
-			...saved.heatmapConfig,
-			intensityStops: {
-				...DEFAULT_SETTINGS.heatmapConfig.intensityStops,
-				...(saved.heatmapConfig.intensityStops ?? {}),
-			},
-			colors:
-				saved.heatmapConfig.colors ??
-				DEFAULT_SETTINGS.heatmapConfig.colors,
-		};
-	}
-
-	if (saved?.sidebarConfig) {
-		merged.sidebarConfig = {
-			...DEFAULT_SETTINGS.sidebarConfig,
-			...saved.sidebarConfig,
-			visibility: {
-				...DEFAULT_SETTINGS.sidebarConfig.visibility,
-				...saved.sidebarConfig.visibility,
-			},
-		};
-		merged.sidebarConfig.slots = (saved.sidebarConfig.slots ?? []).map(
-			(slot, index) => ({
-				...DEFAULT_SETTINGS.sidebarConfig.slots[0],
-				...slot,
-				unit: slot.unit ?? DEFAULT_SETTINGS.preferredUnit,
-				index,
-			}),
-		);
-	}
-
-	if (saved?.backupConfig) {
-		merged.backupConfig = {
-			...DEFAULT_SETTINGS.backupConfig,
-			...saved.backupConfig,
-		};
-	}
-
-	if (saved?.statusBar) {
-		merged.statusBar = { ...DEFAULT_SETTINGS.statusBar, ...saved.statusBar };
-	}
-
-	return merged;
+	return { ...DEFAULT_SETTINGS, ...saved };
 }

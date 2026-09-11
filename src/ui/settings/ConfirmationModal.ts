@@ -1,6 +1,7 @@
 import { Modal } from "obsidian";
 import { Setting } from "obsidian";
 import { App } from "obsidian";
+import { t } from "@/ui/i18n";
 
 export class ConfirmationModal extends Modal {
 	private onConfirm: () => void;
@@ -13,7 +14,7 @@ export class ConfirmationModal extends Modal {
 		message: string,
 		onConfirm: () => void,
 		onCancel?: () => void,
-		confirmText = "Confirm",
+		confirmText = t("common.confirm"),
 	) {
 		super(app);
 		this.message = message;
@@ -28,12 +29,12 @@ export class ConfirmationModal extends Modal {
 
 		//TODO
 
-		contentEl.createEl("h3", { text: "Confirm action" });
+		contentEl.createEl("h3", { text: t("confirm.title") });
 		contentEl.createEl("p", { text: this.message });
 
 		new Setting(contentEl)
 			.addButton((button) =>
-				button.setButtonText("Cancel").onClick(() => {
+				button.setButtonText(t("common.cancel")).onClick(() => {
 					this.onCancel();
 					this.close();
 				}),

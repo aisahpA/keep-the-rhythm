@@ -1,15 +1,19 @@
-import { PluginData, normalizeSettings } from "@/defs/types";
+import { normalizeSettings, PersistedStats, PluginData } from "@/defs/types";
 import { ActivityCounts, DayActivityMap, DaysMap } from "@/defs/types";
 import { useStore } from "./store";
 import { decodeActivities, collectActiveFiles } from "./statsCodec";
-import KeepTheRhythm from "../main";
 import { Notice } from "obsidian";
 
 /**
- * Handle external changes to data.json (e.g. from 坚果云 sync, manual edits).
+ * 外部同步合并，按文件拆分：
+ *   - mergeExternalSettings —— data.json（Obsidian 管理，经
+ *     onExternalSettingsChange 推送）：外部设置整体覆盖本地。
+ *   - mergeExternalStats —— 独立的 stats 数据文件（路径可配置，无
+ *     data.json 式推送；靠 5s mtime 轮询 + 写前检查 + focus /
+ *     visibilitychange 兜底）：行级合并进 store。
  *
- * Strategy:
- *   1. loadData() 把外部变更"冻结"在内存里 —— 之后任何写盘都不会丢它
+ * stats 合并策略：
+ *   1. 解码外部数据
  *   2. 行级合并 days:同 key (date, filePath) 比新增字数,大者赢
  *   3. 联动合并当天 baseline:当天行赢了谁的 added,就用谁的 baseline
  *      (days[today] 和 todayBaselines 是成对存在的,拆开合并会让本地
@@ -23,22 +27,48 @@ import { Notice } from "obsidian";
  * 下一次触碰自然重建。游标状态(如 getCurrentCount 的 query cursor)
  * 不受行删除影响,旧的会自然过期。
  */
-export async function handleExternalDataChange(plugin: KeepTheRhythm) {
-	try {
-		// 1. 先读盘 —— 外部数据现在活在内存里了
-		const newData = (await plugin.loadData()) as PluginData | null;
-		if (!newData) return;
 
+export async function mergeExternalSettings(
+	data: PluginData | null,
+): Promise<void> {
+	if (!data) return;
+	const cur = useStore.getState();
+	// settings: 外部覆盖,并上 defaults 兜底
+	const newSettings = normalizeSettings(data.settings);
+	if (JSON.stringify(newSettings) === JSON.stringify(cur.settings)) return;
+	useStore.setState({ settings: newSettings });
+	useStore.getState().requestPersist();
+}
+
+export async function mergeExternalStats(
+	stats: PersistedStats | undefined,
+): Promise<void> {
+	try {
 		const cur = useStore.getState();
 		const today = cur.today;
 
-		// 2. settings: 外部覆盖,并上 defaults 兜底
-		const newSettings = normalizeSettings(newData.settings);
+		// 1. 解码外部 —— 外部数据现在活在内存里了
+		const ext = decodeActivities(stats, today);
 
-		// 3. 解码外部 (含 legacy 迁移)
-		const ext = decodeActivities(newData.stats, today);
+		// Guard: an external file with NO recoverable activity rows is not
+		// a deletion manifest.  Sync clients can transiently deliver an
+		// empty or partially-written stats file; trusting it here would drop
+		// every local-only row and the requestPersist below would write the
+		// wipe to disk.  Real deletions still propagate whenever the
+		// external file contains at least one row.
+		const extRowCount = Object.values(ext.days).reduce(
+			(n, d) => n + Object.keys(d).length,
+			0,
+		);
+		if (extRowCount === 0 && Object.keys(cur.days).length > 0) {
+			console.warn(
+				"KTR: external stats file has no activity rows — keeping local data.",
+			);
+			new Notice("Ktr: external stats file looked empty — local data kept.");
+			return;
+		}
 
-		// 4. 行级合并 days —— 同 key 取新增字数大者,本地独有行丢弃
+		// 2. 行级合并 days —— 同 key 取新增字数大者,本地独有行丢弃
 		//    (尊重外部删除)。今天的赢家是谁单独记录,用于联动 baseline。
 		const mergedDays: DaysMap = {};
 		const localWonToday: Record<string, boolean> = {};
@@ -57,7 +87,7 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 			mergedDays[date] = mergedDay;
 		}
 
-		// 5. 联动合并当天 baseline
+		// 3. 联动合并当天 baseline
 		const mergedBaselines: DayActivityMap = {};
 		for (const filePath of Object.keys(mergedDays[today] ?? {})) {
 			let baseline: ActivityCounts | undefined;
@@ -75,9 +105,9 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 		const mergedBaselinesDay =
 			Object.keys(mergedBaselines).length > 0 ? today : null;
 
-		// 6. 浅快查:合并结果与当前 store 一致则直接返回
+		// 4. 浅快查:合并结果与当前 store 一致则直接返回
 		if (
-			isNoop(cur, newSettings, {
+			isNoop(cur, {
 				days: mergedDays,
 				todayBaselines: mergedBaselines,
 				todayBaselinesDay: mergedBaselinesDay,
@@ -86,15 +116,14 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 			return;
 		}
 
-		// 7. 合并 activeFiles —— 取并集(保留旧条目不产生误判)。
+		// 5. 合并 activeFiles —— 取并集(保留旧条目不产生误判)。
 		const mergedActiveFiles = new Set([
 			...cur.activeFiles,
 			...collectActiveFiles(mergedDays),
 		]);
 
-		// 8. 一次性 setState
+		// 6. 一次性 setState
 		useStore.setState({
-			settings: newSettings,
 			days: mergedDays,
 			todayBaselines: mergedBaselines,
 			todayBaselinesDay: mergedBaselinesDay,
@@ -104,11 +133,11 @@ export async function handleExternalDataChange(plugin: KeepTheRhythm) {
 			historicalVersion: cur.historicalVersion + 1,
 		});
 
-		// 9. 写回磁盘
+		// 7. 写回磁盘
 		useStore.getState().requestPersist();
 	} catch (error) {
-		console.error("Error in handleExternalDataChange:", error);
-		new Notice("KTR: failed to sync external data.json changes.");
+		console.error("Error in mergeExternalStats:", error);
+		new Notice("Ktr: failed to sync external stats file changes.");
 	}
 }
 
@@ -121,15 +150,11 @@ interface Partitions {
 /** Shallow structural equality for the no-op fast path. */
 function isNoop(
 	cur: ReturnType<typeof useStore.getState>,
-	newSettings: typeof cur.settings,
 	merged: Partitions,
 ): boolean {
 	if (!daysEqual(cur.days, merged.days)) return false;
 	if (!dayMapsEqual(cur.todayBaselines, merged.todayBaselines)) return false;
 	if (cur.todayBaselinesDay !== merged.todayBaselinesDay) return false;
-	if (JSON.stringify(newSettings) !== JSON.stringify(cur.settings)) {
-		return false;
-	}
 	return true;
 }
 

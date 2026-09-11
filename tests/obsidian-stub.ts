@@ -22,3 +22,7 @@ export const moment = stubMoment as unknown as {
 	default: typeof stubMoment;
 };
 moment.default = stubMoment;
+
+export class Notice {
+	constructor(public message?: string) {}
+}

@@ -53,7 +53,8 @@ export function createHeatmapCodeBlock(
 
 	if (!query?.options) return; // add log / error
 
-	renderReactCodeBlock(el, ctx, "heatmap-codeblock",
+	renderReactCodeBlock(el, ctx,
+		`heatmap-codeblock ${query.options.center ? "center" : ""}`,
 		React.createElement(Heatmap, {
 			heatmapConfig: query?.options,
 			preferredUnit: query.options.unit,

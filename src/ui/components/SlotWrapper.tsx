@@ -5,6 +5,7 @@ import { Slot } from "./Slot";
 import { useStore } from "@/core/store";
 import { useRef, useCallback, useMemo } from "react";
 import { TransitionGroup, CSSTransition } from "react-transition-group";
+import { t } from "@/ui/i18n";
 
 interface SlotWrapperProps {
   slots?: SlotConfig[];
@@ -61,7 +62,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
 
   const handleAddClick = useCallback(() => {
     if (slotsWithUuid && slotsWithUuid.length >= 10) {
-      new Notice("Maximum of 10 slots per view! (At least for now)");
+      new Notice(t("slot.maxSlots"));
       return;
     }
     const newSlot: SlotConfig = {
@@ -118,7 +119,7 @@ export const SlotWrapper = ({ slots: slotsProp, isCodeBlock }: SlotWrapperProps)
             slotsWithUuid && slotsWithUuid.length >= 10 ? true : false
           }
         >
-          + ADD NEW SLOT
+          {t("slot.addNew")}
         </button>
       )}
     </div>

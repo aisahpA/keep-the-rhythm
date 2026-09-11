@@ -6,6 +6,7 @@ import {
 	selectTodayVersion,
 } from "@/core/dataQueries";
 import { Tooltip } from "./Tooltip";
+import { UnitLabel } from "./UnitLabel";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { getFileNameWithoutExtension } from "@/utils/utils";
@@ -16,6 +17,7 @@ import { FileSuggest } from "./FileSuggest";
 import { EntryFilter } from "@/core/codeBlocks";
 import { ActivityRecord, Unit } from "@/defs/types";
 import { ConfirmationModal } from "@/ui/settings/ConfirmationModal";
+import { t } from "@/ui/i18n";
 
 interface EntriesProps {
 	date?: string;
@@ -116,9 +118,14 @@ const EntryRow = React.memo(function EntryRow({
 	const baseline = useStore((s) => s.todayBaselines[entry.filePath]);
 	const baselineInfo =
 		entry.date === today && baseline !== undefined
-			? `Baseline ${(unit === Unit.CHAR ? baseline.c : baseline.w).toLocaleString()} → current ${(
-					(unit === Unit.CHAR ? baseline.c : baseline.w) + delta
-				).toLocaleString()} (${prefix}${delta.toLocaleString()} today)`
+			? t(
+					"entries.baseline",
+					(unit === Unit.CHAR ? baseline.c : baseline.w).toLocaleString(),
+					(
+						(unit === Unit.CHAR ? baseline.c : baseline.w) + delta
+					).toLocaleString(),
+					`${prefix}${delta.toLocaleString()}`,
+				)
 			: null;
 
 	const countSpan = (
@@ -167,18 +174,18 @@ const EntryRow = React.memo(function EntryRow({
 						)}
 						<span className="todayEntries_list-item-unit">
 							{" "}
-							{unit === Unit.CHAR ? "chars" : "words"}
+							<UnitLabel unit={unit} />
 						</span>
 					</>
 				)}
-				<Tooltip content="Edit entry">
+				<Tooltip content={t("entries.editEntry")}>
 					<button
 						ref={editButtonRef}
 						className="todayEntries__edit-button"
 						onClick={startEditing}
 					/>
 				</Tooltip>
-				<Tooltip content="Delete entry">
+				<Tooltip content={t("entries.deleteEntry")}>
 					<button
 						ref={deleteButtonRef}
 						className="todayEntries__delete-button"
@@ -239,18 +246,18 @@ const QuickAddRow = React.memo(function QuickAddRow({
 	const handleSave = useCallback(async () => {
 		const filePath = fileInputRef.current?.value.trim() ?? "";
 		if (!filePath) {
-			new Notice("Please pick a file");
+			new Notice(t("entries.noticePickFile"));
 			return;
 		}
 		const app = getPlugin().app;
 		const file = app.vault.getFileByPath(filePath);
 		if (!file) {
-			new Notice(`File not found: ${filePath}`);
+			new Notice(t("entries.noticeFileNotFound", filePath));
 			return;
 		}
 		const value = Number(wordsInputRef.current?.value);
 		if (!Number.isFinite(value) || value <= 0) {
-			new Notice("Please enter a valid word count");
+			new Notice(t("entries.noticeInvalidCount"));
 			return;
 		}
 		await addOrUpdateActivity(file, date, value);
@@ -278,24 +285,24 @@ const QuickAddRow = React.memo(function QuickAddRow({
 				ref={fileInputRef}
 				className="todayEntries__quick-add-file"
 				type="text"
-				placeholder="File path…"
+				placeholder={t("entries.placeholderFile")}
 			/>
 			<input
 				ref={wordsInputRef}
 				className="todayEntries__quick-add-words"
 				type="number"
 				min="0"
-				placeholder="Words"
+				placeholder={t("entries.placeholderWords")}
 				onKeyDown={handleWordsKeyDown}
 			/>
-			<Tooltip content="Save entry">
+			<Tooltip content={t("entries.saveEntry")}>
 				<button
 					ref={setSaveIcon}
 					className="todayEntries__quick-add-save"
 					onClick={() => void handleSave()}
 				/>
 			</Tooltip>
-			<Tooltip content="Cancel">
+			<Tooltip content={t("common.cancel")}>
 				<button
 					ref={setCancelIcon}
 					className="todayEntries__quick-add-cancel"
@@ -451,7 +458,7 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 		const file = app.vault.getFileByPath(filePath);
 
 		if (!file) {
-			new Notice("File not found!");
+			new Notice(t("entries.fileNotFound"));
 			return;
 		}
 
@@ -474,15 +481,17 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 		(filePath: string) => {
 			const entry = rawEntries.find((e) => e.filePath === filePath);
 			const name = getFileNameWithoutExtension(filePath);
-			const detail = entry ? ` (${entry.wordsAdded.toLocaleString()} words)` : "";
+			const detail = entry
+				? t("entries.deleteDetail", entry.wordsAdded.toLocaleString())
+				: "";
 			new ConfirmationModal(
 				getPlugin().app,
-				`Delete entry "${name}"${detail} from ${date}? This cannot be undone.`,
+				t("entries.deleteConfirm", name, detail, date),
 				() => {
 					void deleteActivityFromDate(filePath, date);
 				},
 				undefined,
-				"Delete",
+				t("common.delete"),
 			).open();
 		},
 		[date, rawEntries],
@@ -494,7 +503,7 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 			const app = getPlugin().app;
 			const file = app.vault.getFileByPath(filePath);
 			if (!file) {
-				new Notice("File not found!");
+				new Notice(t("entries.fileNotFound"));
 				return;
 			}
 			void addOrUpdateActivity(file, date, value);
@@ -507,9 +516,11 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 			<RadixTooltip.Provider delayDuration={200}>
 				<div className="todayEntries__header">
 					<div className="todayEntries__section-title">
-						{date == today ? "ENTRIES TODAY" : `ENTRIES (${date})`}
+						{date == today
+							? t("entries.titleToday")
+							: t("entries.titleForDate", date)}
 					</div>
-					<Tooltip content="Pick a date">
+					<Tooltip content={t("entries.pickDate")}>
 						<button
 							className="todayEntries__date-button"
 							ref={setDateButtonIcon}
@@ -525,7 +536,7 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 						onChange={(e) => handleDatePicked(e.target.value)}
 					/>
 					{date !== today && (
-						<Tooltip content="Back to today">
+						<Tooltip content={t("entries.backToToday")}>
 							<button
 								className="todayEntries__today-button"
 								ref={setResetButtonIcon}
@@ -533,14 +544,14 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 							/>
 						</Tooltip>
 					)}
-					<Tooltip content="Change Unit">
+					<Tooltip content={t("entries.changeUnit")}>
 						<button
 							className="todayEntries__entry-unit"
 							ref={setUnitButtonIcon}
 							onClick={toggleUnit}
 						/>
 					</Tooltip>
-					<Tooltip content="Add entry">
+					<Tooltip content={t("entries.addEntry")}>
 						<button
 							className="todayEntries__manual-entry"
 							ref={setManualEntryIcon}
@@ -569,12 +580,12 @@ export const Entries = ({ date: dateProp, filters, preferredUnit, onDateChange }
 					})
 				) : (
 					<div className="empty-data">
-						<span>No files edited today</span>
+						<span>{t("entries.empty")}</span>
 						<button
 							className="todayEntries__empty-add"
 							onClick={toggleQuickAdd}
 						>
-							Add entry
+							{t("entries.addEntry")}
 						</button>
 					</div>
 				)}

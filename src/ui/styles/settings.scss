@@ -69,6 +69,47 @@
 	}
 }
 
+.KTR-icon-picker__search {
+	width: 100%;
+	margin-bottom: 8px;
+}
+
+.KTR-icon-picker__grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+	gap: 4px;
+	max-height: 50vh;
+	overflow-y: auto;
+}
+
+.KTR-icon-picker__item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 36px;
+	padding: 0;
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	background: transparent;
+	border: 1px solid transparent;
+	box-shadow: none;
+
+	&:hover {
+		background: var(--background-modifier-hover);
+	}
+
+	&.is-selected {
+		border-color: var(--interactive-accent);
+		color: var(--interactive-accent);
+	}
+}
+
+.KTR-icon-picker__empty {
+	color: var(--text-muted);
+	padding: 8px 0;
+	grid-column: 1 / -1;
+}
+
 .ktr__start-date-picker {
 	height: var(--input-height);
 	padding: 0 10px;

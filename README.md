@@ -1,257 +1,191 @@
 # Keep the Rhythm2
 
-Keep the Rhythm2 is an Obsidian plugin that helps you maintain a consistent writing habit by tracking your daily word count, setting writing goals and visualizing data through a heatmap and customizable code blocks.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-> This branch is a major internal rework compared to upstream `keep-the-rhythm` **v0.2.12** (commit `440c357`). It is distributed under the new id `keep-the-rhythm2` (v0.5.0). See [What Changed vs. v0.2.12](#what-changed-vs-v0212) for a summary of the differences.
+An Obsidian plugin that tracks your daily writing, helps you set goals, and visualizes progress with a heatmap. A reworked fork of [Keep the Rhythm](https://github.com/benjaminezequiel/keep-the-rhythm).
 
 ![image](https://github.com/user-attachments/assets/8acd047d-68da-42d0-835d-6c7ab55b6f65)
 
-## Features
+## Differences from upstream
 
-- **Writing Stats**: Automatically tracks how many words you write each day in Obsidian
+Compared with upstream [`benjaminezequiel/keep-the-rhythm`](https://github.com/benjaminezequiel/keep-the-rhythm) `v0.2.16` (this fork branched from `v0.2.12`):
 
-- **Goals & Streaks**: Set daily writing goals and track your streak of consecutive days meeting your target
+| Area | Upstream | This plugin (`keep-the-rhythm2`) |
+| --- | --- | --- |
+| Storage | Dexie/IndexedDB; full rewrite into `data.json`; per-file 5-minute deltas; **a permanent row for every file click**, even files never written to | Plain JSON stats file (default `stats.json`, configurable vault path); dictionary-encoded paths, per-day aggregates; files only opened add no row; ~85–94% smaller |
+| State | Manual event/refresh | Zustand reactive store with partitioned caches (O(1) slot lookups) |
+| Live tracking | 5-minute time entries | Live delta vs. day-start baseline; may go negative and is editable |
+| Tracking scope | Whole vault | **Tracked Folders** to restrict tracking to part of the vault |
+| Status bar | — | Today's count / goal; click to open the sidebar |
+| Languages | 10 scripts, CJK combined | 10 scripts, Chinese / Japanese / Korean split out |
+| Slots | `WHOLE_VAULT` present; `CURRENT_FILE` = whole file count | `WHOLE_VAULT` **removed**; `CURRENT_FILE` = today's delta for the active file |
+| `LAST_DAY` | Last 24 hours | Last 2 calendar days |
+| Heatmap block | `CENTER` option | Adds `CELL_SIZE`, `UNIT`, left-align; also supports `CENTER` |
+| Entries | Manual add only | Add, inline edit and delete |
+| Backups | Up to 3 | Once per day, keeps 7; auto-restores the newest non-empty backup if the stats file is missing/emptied |
+| Multi-device sync | Row merge via Dexie ids | mtime sentinel + row-level max-wins merge + empty-file guard |
+| Commands | Open, add manual entry, check streak, 3 insert-block | Open sidebar + 3 insert-block |
 
-- **Heatmap**: View your writing activity over time (helps with consistency and motivation)
-- **Custom Slots**: Various writing statistics (written today, this week, avg. this year, etc.)
-- **Status Bar**: Today's total word count and goal always visible in Obsidian's status bar (click to open the sidebar, toggle in settings)
-- **Entries by Day**: Easily check and navigate to files you have worked on today
-
-- **Embedded Components**: Insert heatmaps, slots, and entries widgets into any note using custom code blocks
-- **Advanced Filtering**: Filter your writing statistics with the query syntax for specific folders or file patterns
-- **Tracking Scope**: Restrict all tracking to a subset of the vault by listing folders (see [Tracking Scope](#tracking-scope))
-- **Multi-device Sync**: Syncs and merges statistics across different devices
-- **Compressed Storage**: Historical data is dictionary-encoded (file paths → small IDs), cutting persisted size by ~60–65% for multi-month histories (see [Storage](#storage-and-migration))
+> No automatic migration from upstream's Dexie / `data.json` history is implemented. This fork keeps its stats in its own dictionary-encoded file and starts fresh.
 
 ## Installation
 
+#### BRAT INSTALLATION
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin and enable it.
+2. Run the command `BRAT: Add a beta plugin for testing`.
+3. Enter `aisahpA/keep-the-rhythm`.
+4. Click **Add Plugin**, then enable **Keep the Rhythm2** in Settings → Community plugins.
+
+BRAT keeps the plugin updated from this repository's releases.
+
 #### MANUAL INSTALLATION
 
-Download the latest release files from this repository's Releases section
-Create a folder at /.obsidian/plugins/ named keep-the-rhythm2
-Reload Obsidian
-Go to Settings > Community Plugins and enable "Keep the Rhythm2"
-
----
+1. Download `main.js`, `manifest.json` and `styles.css` from this repository's Releases section.
+2. Create the folder `<your-vault>/.obsidian/plugins/keep-the-rhythm2/`.
+3. Put the three files inside it.
+4. Reload Obsidian.
+5. Go to Settings → Community plugins and enable **Keep the Rhythm2**.
 
 ## Usage
 
+<details>
+<summary><strong>Click to expand usage, slots, code blocks and settings</strong></summary>
+
 ### Basic Usage
 
-Once installed and enabled, Keep the Rhythm2 will automatically begin tracking your writing activity. To view your statistics:
+Once enabled, Keep the Rhythm2 tracks your writing automatically. To view your statistics:
 
-1. Click the Keep the Rhythm2 icon in the left sidebar or use the command `Open sidebar view`
-2. The plugin panel displays your heatmap, current statistics, and today's entries
-3. Set up your preferred data points by hovering and clicking on each slot
-4. Hover over any cell to see the exact word count of that day
+1. Click the calendar icon in the ribbon or run the command `Open sidebar view`.
+2. The sidebar shows your slots (overview), the heatmap, and today's entries.
+3. Hover any heatmap cell to see that day's exact count; click it to open the day's note (uses Obsidian's core _Daily Notes_).
+4. The status bar shows `today / goal` (toggle in settings); click it to open the sidebar.
 
 ### Writing Goals
 
-Set and track your daily writing goals:
-
-1. Define your target word count per day in the plugin's settings
-2. Keep the Rhythm2 will track your streak of consecutive days meeting your goal
-3. View your current streak in the sidebar or through embedded slots
-
-> You can force the plugin to check previous dates when you change your writing goal by using the command `Check streak`
+1. Set your target in **Writing Goal** in the settings.
+2. The plugin tracks a streak of consecutive days meeting the goal.
+3. Show it with the `CURRENT_STREAK` slot.
 
 ### Tracking Scope
 
-By default Keep the Rhythm2 tracks every markdown file in the vault. Set a **Tracked Folders** list in Settings -> General to restrict tracking to specific folders.
+By default every markdown file in the vault is tracked. Add folders under **Settings → General → Tracked Folders** to restrict tracking to a subset. The list uses a folder suggester: press **Add folder** and pick a folder; remove a row with its trash button.
 
-Add one folder at a time: type the folder path (e.g. `20-research`) into the input and click **Add** (or press Enter). Each added folder shows up as a row with a trash button; click the trash button to remove it.
-
-Matching rules:
-
-- A file is tracked when its path equals one of the configured folders or starts with `<folder>/`.
-- `20-research` matches `20-research/notes.md` and `20-research/sub/deep.md`, but **not** `20-research-backup/notes.md` (boundary respected).
-- Nested folders are supported: `20-research/notes` only tracks files under `20-research/notes/`.
-- An empty list tracks the whole vault (default behaviour).
-
-When the list is non-empty, the following behaviour changes:
-
-- Edits to files outside the scope are ignored (no `dailyActivity` entry is created)
-- Files outside the scope are excluded from the `WHOLE_VAULT` count
-- Renaming a file out of the scope removes its historical activity
-- The heatmap, streak, daily goal, and sidebar slots all reflect only the in-scope files
+- A file is tracked when its path equals a configured folder or starts with `<folder>/` (so `20-research` matches `20-research/sub/deep.md` but not `20-research-backup/notes.md`).
+- An empty list tracks the whole vault (default).
+- Files outside the scope are ignored, and renaming a file out of scope removes its history.
 
 ### Heatmap Customization
 
-Customize your heatmap appearance with various options:
-
-- Coloring Modes:
-    - `gradual`: Smooth gradient between colors
-    - `solid`: Single color intensity — a day is colored (full strength) when its word count reaches your daily writing goal; the threshold follows the Writing Goal setting and does not affect other modes (leaving solid restores the default thresholds)
-    - `stops`: Discrete color levels with thresholds
-    - `liquid`: Color fills cells from bottom up
-- Cell Shape: Choose between **rounded** (default) or **squared** cells
-- Interactive Navigation: Click cells to jump to daily notes (uses Obsidian's core plugin _Daily Notes_)
-
+- **Coloring modes**: `gradual` (smooth gradient), `solid` (single color once the day reaches your Writing Goal), `stops` (discrete thresholds) and `liquid` (fills from the bottom up).
+- **Cell shape and size**: rounded or squared; configurable pixel size.
+- **Labels**: hide month and/or weekday labels; align cells left.
+- **Range**: number of weeks displayed and a custom start date.
+- **Colors**: separate light/dark palettes, with reset-to-default.
+- **Navigation**: click a cell to open that day's note.
 
 ### Data Slots
 
-Display various writing statistics using customizable slots:
+Add up to 10 slots per view. Each is `TARGET, UNIT, CALC`, where `UNIT` is `WORD` or `CHAR` and `CALC` is `TOTAL` or `AVG`.
 
-- Current: CURRENT_DAY, CURRENT_WEEK, CURRENT_MONTH, CURRENT_YEAR
-    - These are dynamic ranges calculated based on the start of the day/week/year
-- Historical Stats: LAST_DAY, LAST_WEEK, LAST_MONTH, LAST_YEAR
-    - These are calculated based on discrete ranges (2d, 7d, 30d, 365d)
-- Goal Tracking: CURRENT_STREAK
-
-> Note: `CURRENT_FILE` and `WHOLE_VAULT` were removed in this branch.
+| Slot | Meaning | AVG |
+| --- | --- | --- |
+| `CURRENT_FILE` | Today's delta for the active file | no |
+| `CURRENT_DAY` | Words written today | no |
+| `CURRENT_WEEK` | From Monday of this week to today | yes |
+| `CURRENT_MONTH` | From the start of the month to today | yes |
+| `CURRENT_YEAR` | From the start of the year to today | yes |
+| `LAST_DAY` | Yesterday + today (2 days) | no |
+| `LAST_WEEK` | Rolling last 7 days | yes |
+| `LAST_MONTH` | Rolling last 30 days | yes |
+| `LAST_YEAR` | Rolling last 365 days | yes |
+| `CURRENT_STREAK` | Consecutive days meeting the goal (in days) | no |
 
 ### Code Blocks
 
-Keep the Rhythm2 provides three types of embeddable code blocks.
-
-> A block can be created by using the code block syntax (3 backticks on start and end) and a keyword to specify the block type.
+Three embeddable code blocks. Insert them with the commands `Insert Heatmap/Slots/Entries code block` (or type them manually).
 
 #### Heatmap (`ktr-heatmap`)
 
-Embed customizable heatmaps with filtering and display options:
+A filter expression, then an `OPTIONS` section:
 
 ````
 ```ktr-heatmap
 filePath starts_with "journal"
 
-OPTIONS                                    // must always start with the OPTIONS header
-HIDE month_labels, weekday_labels          // allows to hide the labels
-COLORING_MODE liquid                       // toggles the coloring mode (liquid, stops, solid or gradual)
-STOPS 100, 500, 1000                       // changes the keypoints used for calculating the color of the cells
-SQUARED_CELLS                              // changes the cell styling for a more squared look
-ROUNDED_CELLS                              // changes the cell styling for a rounded look
-WEEKS 24                                   // changes how many weeks are displayed (can affect performance)
-CELL_SIZE 14                               // changes the size of each cell in pixels
+OPTIONS
+HIDE month_labels, weekday_labels
+COLORING_MODE liquid
+STOPS 100, 500, 1000
+WEEKS 24
+CENTER
+CELL_SIZE 14
+UNIT WORD
 ```
 ````
 
-Query Syntax:
-
-- Filter by file path: `filePath starts_with "folder_name"`
-- Compose queries: `(filePath starts_with "journal") OR (filePath starts_with "worldbuilding")`
-
-Available Options:
-
-- `HIDE month_labels, weekday_labels`: Hide specific labels
-- `COLORING_MODE`: Set to `liquid`, `stops`, `solid`, or `gradual`
-- `STOPS`: Define threshold values (e.g., `100, 500, 1000`)
-- `SQUARED_CELLS` or `ROUNDED_CELLS`: Control cell appearance
-- `CELL_SIZE`: Cell size in pixels (e.g., `14` for larger cells)
+- Query fields: `date`, `filePath`, `wordsAdded`, `charsAdded`. Operators: `starts_with`, `contains`, `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`, plus `AND`/`OR` aliases and parentheses.
+- Options: `HIDE month_labels, weekday_labels`; `COLORING_MODE liquid|stops|solid|gradual`; `STOPS a, b, c`; `SQUARED_CELLS` / `ROUNDED_CELLS`; `START_DATE YYYY-MM-DD`; `WEEKS n`; `CELL_SIZE n`; `UNIT WORD|CHAR`; `CENTER` (horizontally center the heatmap in the note).
 
 #### Data Slots (`ktr-slots`)
 
-Display inline statistics with customizable metrics:
+One slot per line: `TARGET`, `TARGET, UNIT`, or `TARGET, UNIT, CALC`.
 
 ````
 ```ktr-slots
-CURRENT_WEEK
-CURRENT_DAY, WORDS
+CURRENT_WEEK, WORD
+CURRENT_DAY, CHAR
 CURRENT_STREAK
-CURRENT_MONTH, WORDS, AVG
-CURRENT_YEAR
+CURRENT_MONTH, WORD, AVG
 ```
 ````
 
-Available Slots:
-
-- CURRENT_STREAK: displays the amount of sequential days where writing goal was completed
-- CURRENT_DAY: displays the amount written from the start of the day until now
-- CURRENT_WEEK: displays the amount from the start of the week (currently defined as Monday, I'll add a setting soon)
-- CURRENT_MONTH: displays the amount from the start of the month
-- CURRENT_YEAR: displays the amount from the start of the year
-- LAST_DAY: amount written in the last 2 days
-- LAST_WEEK: amount written in the last 7 days
-- LAST_MONTH: amount written in the last 30 days
-- LAST_YEAR: amount written in the last 365 days
-
-**Options**:
-
-- Add AVG for average calculations where applicable (only word counts are tracked; `CHARS` was removed)
-
 #### Daily Entries (`ktr-entries`)
 
-Display writing activity for specific dates:
+An optional date (`YYYY-MM-DD`, defaults to today) plus optional path filters:
 
 ````
 ```ktr-entries
+filePath includes "journal"
 2026-08-01
 ```
 ````
 
-Shows the activity for the specified date (`YYYY-MM-DD` format). If no date is provided, displays the current date's activity.
+- `filePath includes "..."` / `filePath excludes "..."` filter the listed files.
+- Entries can be added manually, edited inline (double-click) and deleted.
 
-## Settings and Customization
+### Settings
 
-Access comprehensive customization options through the plugin settings:
+- **General**: Preferred Unit, Enabled Languages (10 scripts), Ignore Comments, Ignore Tasks, Ignore Deleted Files, Writing Goal, Editor Change Sample Delay, Tracked Folders.
+- **Heatmaps**: navigation, shape, labels, alignment, start date, weeks, cell size, coloring mode, intensity stops, light/dark colors.
+- **Sidebar**: show/hide overview, entries and heatmap.
+- **Status Bar**: show today's count.
+- **Data Storage**: stats data file location and history length.
+- **Backup**: enable, folder path, days retained.
 
-- Set daily writing goals and track streaks
-- Configure heatmap appearance (coloring, cell shapes, labels, custom start date)
-- Configure which writing systems to count (`Enabled Languages`, including `Chinese` / CJK)
-- Set an **Editor Change Sample Delay** (seconds to wait after typing stops before sampling content)
-- Manage **Tracked Folders** via a dedicated popup manager
-- Toggle visibility of different plugin components
-- Configure automatic backups
+</details>
 
-## Storage and Migration
+## Storage and Privacy
 
-Data is stored **locally** in `data.json` inside the plugin's data folder — nothing is sent to external servers.
+All data stays **local** — nothing is sent to external servers. Settings live in the plugin's `data.json` (Obsidian-managed); writing stats live in a separate JSON file (default `stats.json`, changeable to any vault-relative path under **Settings → Data Storage**).
 
-Since this branch, historical activity is stored as a **dictionary-encoded** map: file paths are replaced by small integer IDs in `days`, and a separate `fileDict` maps IDs back to paths. `today` activity is kept in a separate partition (`todayBaselines`). This reduces the size of multi-month histories by roughly 60–65%.
-
-Daily per-file values are **live deltas** against the day's baseline snapshot (the file's word count when it was first tracked today): they move with the editor and can go **negative** when a file shrinks below its starting count. Negative rows are kept in storage, shown in the entries list, and can be corrected manually at any time.
-
-Old-format data (from the Dexie-based v0.2.12 / `440c357`) is **migrated automatically** on load — you don't need to do anything manually.
-
-## What Changed vs. v0.2.12
-
-This branch is a large internal rework of the upstream `keep-the-rhythm` (commit `440c357`, v0.2.12). The plugin is now published as **Keep the Rhythm2** (`keep-the-rhythm2`, v0.5.0). Highlights:
-
-**Architecture & storage**
-- Removed the **Dexie** database (`src/db/`) in favor of a single JSON file (`data.json`) with dictionary-encoded, cache-friendly structures.
-- Replaced the manual event/refresh system with a **Zustand store** (`src/core/store.ts`) for centralized, reactive state.
-- Split activity into **today** and **historical** partitions with separate caches, and removed the redundant per-day rows in favor of a `wordsAdded`/`charsAdded` shape.
-- Added a dedicated **stats codec** (`src/core/statsCodec.ts`) that owns the persisted ↔ runtime shape and transparently migrates legacy data.
-- Added new modules for persistence (`dataPersistence.ts`), queries (`dataQueries.ts`), and external multi-device sync (`externalSync.ts`).
-- Dropped the `moment` dependency in favor of native date utilities.
-
-**Removed features**
-- `CURRENT_FILE` and `WHOLE_VAULT` slots.
-- Character (`CHARS`) counting and the unit selector — only **word counts** are tracked now.
-- Repository-scoped code (`pluginState.ts`, `devUtils.ts`, `migrateData.ts`).
-
-**Added / improved**
-- **Tracked Folders** setting using Obsidian 1.13 native Settings Lists (`SettingDefinitionList`), with inline add/delete affordances, to restrict tracking to a subset of the vault.
-- **Editor Change Sample Delay** setting (seconds to wait after typing stops before sampling content) with adjustable JSON persistence debounce (2000 ms).
-- **Chinese** option in Enabled Languages (LATIN + CJK scripts).
-- Automatic **backups** (`backup.ts`).
-- Caching & `React.memo` throughout heatmap, entries, tooltip and slots to reduce re-renders.
-- Heatmap option to align cells left; `LAST_DAY` now reports the last **2 days** instead of 24 hours.
-- Active-file tracking with an `activeFiles` set for efficient rename handling.
-
-> Note: this branch is **not interchangeable** data-wise with v0.2.12 for the storage format, but legacy Dexie data is migrated automatically on first load. If you previously used v0.2.12, your history will be preserved.
-
-## Data and Privacy
-
-Keep the Rhythm2 **stores all data locally** in your Obsidian vault. No data is sent to external servers. Your writing statistics are saved in a JSON file within the plugin's data directory.
+- **Dictionary encoding**: file paths are stored once as small integer IDs, activity is aggregated per day, and files that are only opened (never written) produce no row. Measured against upstream's `data.json` for a normal user (500-file vault, ~12 files opened and 6 written per day, 500 words/day), the stats file is ~85% smaller after 30 days, ~92% after a year and ~94% after three years. Upstream keeps a permanent starting-count + 5-minute-delta row for every file click, so roughly a third of its history is empty, never-written files.
+- **Live deltas**: today's value per file is `current count − count when first touched today`, so it can go negative when a file shrinks. Negative rows are kept and can be corrected.
+- **Multi-device**: when the stats file changes behind the plugin's back (Obsidian Sync, Git, etc.), it is detected via mtime and merged row-by-row; the larger value wins. An empty external file never overwrites local data.
+- **Backups**: once per calendar day a raw copy is written to the backup folder (default `.keep-the-rhythm2`), keeping the newest 7 days. If the stats file is missing or emptied, the newest non-empty backup is restored automatically.
 
 ## Support
 
-If you encounter any issues or have suggestions for improvements, please:
+If you encounter any issues or have suggestions:
 
-1. Check the GitHub Issues to see if your issue has already been reported
-2. Create a new issue if needed, providing as much detail as possible
+1. Check the GitHub Issues to see if your issue has already been reported.
+2. Create a new issue with as much detail as possible.
 
 ## FAQ
 
-#### Why not use Better Word Count?
-
-I built this plugin after finding that Better Word Count, while useful, had issues with Obsidian Sync - stats would get overwritten when switching between devices.
-Keep the Rhythm solves this by properly saving and merging data across devices, ensuring your writing progress is always accurately tracked!
-
 #### Why is there a separate version (Keep the Rhythm2)?
 
-This branch exists to address two key limitations of the original plugin:
+This fork reworks upstream to address two limitations:
 
-- **Performance**: As writing history grows over months and years, the original architecture became increasingly slow. Activity data was stored as a flat array of rows, causing the plugin to reprocess large datasets on every interaction. Keep the Rhythm2 replaces this with a Zustand-based reactive store and dictionary-encoded storage, dramatically reducing re-renders and lookup times.
-
-- **Storage efficiency**: The original format not only duplicated full file paths on every activity entry, but also stored per-file, per-5-minute word-count deltas — creating a massive volume of fine-grained records that grew quickly. Keep the Rhythm2 eliminates this overhead by removing redundant delta tracking, replacing it with dictionary-encoded daily aggregates and split hot/cold partitions. The net result is a reduction of well over 60% in `data.json` size for long-term users — while preserving all meaningful writing history through automatic migration.
+- **Performance** — as history grows, a flat array of fine-grained rows becomes slow to reprocess. This fork uses a Zustand reactive store and dictionary-encoded, per-day aggregates with cache-friendly lookups.
+- **Storage efficiency** — upstream duplicates file paths, stores per-5-minute deltas, and keeps a permanent record for every file click (even files never written to). This fork removes all three, cutting the stats file by ~85% after 30 days and ~92–94% after a year or more of normal use.

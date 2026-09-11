@@ -8,9 +8,11 @@ import { getCurrentCount, selectTodayVersion, selectHistoricalVersion } from "@/
 import { getDailySummaryMap } from "@/utils/dailySummaryCache";
 import { CalculationType } from "@/defs/types";
 import { Tooltip } from "./Tooltip";
-import { getSlotLabel, weekdaysNames } from "../texts";
+import { UnitLabel } from "./UnitLabel";
+import { getSlotLabel, getWeekdaysNames } from "../texts";
 import { TargetCount, SlotConfig, Unit } from "@/defs/types";
 import { useStore } from "@/core/store";
+import { t } from "@/ui/i18n";
 
 const TARGET_COUNTS = Object.values(TargetCount);
 
@@ -61,14 +63,6 @@ export const Slot = React.memo(function Slot({
 		() => getCurrentCount(optionType, calcMode, unitType),
 		[optionType, calcMode, unitType, todayVersion, historicalVersion, activeFileVersion, dailyWritingGoal],
 	);
-
-	const unitText = () => {
-		if (optionType === TargetCount.CURRENT_STREAK) {
-			return "days";
-		} else {
-			return unitType === Unit.CHAR ? "chars" : "words";
-		}
-	};
 
 	const showCalcType =
 		optionType !== TargetCount.CURRENT_DAY &&
@@ -159,8 +153,8 @@ export const Slot = React.memo(function Slot({
 								<Tooltip
 									content={
 										calcMode == CalculationType.TOTAL
-											? "Show daily average"
-											: "Show total"
+											? t("slot.showDailyAverage")
+											: t("slot.showTotal")
 									}
 								>
 									<button
@@ -176,7 +170,7 @@ export const Slot = React.memo(function Slot({
 								</Tooltip>
 							)}
 
-							<Tooltip content="Change Unit">
+							<Tooltip content={t("slot.changeUnit")}>
 								<button
 									className="KTR-min-button"
 									ref={(el) => {
@@ -188,7 +182,7 @@ export const Slot = React.memo(function Slot({
 									}}
 								></button>
 							</Tooltip>
-							<Tooltip content="Change Type">
+							<Tooltip content={t("slot.changeType")}>
 								<select
 									className="KTR-min-select"
 									value={optionType}
@@ -202,7 +196,7 @@ export const Slot = React.memo(function Slot({
 									))}
 								</select>
 							</Tooltip>
-							<Tooltip content="Delete">
+							<Tooltip content={t("common.delete")}>
 								<button
 									className="KTR-min-button"
 									ref={(el) => {
@@ -221,9 +215,13 @@ export const Slot = React.memo(function Slot({
 			<div className="slot__data">
 				<div className="slot__value">{value.toLocaleString()}</div>
 				<div className="slot__unit">
-					{unitText()}
+					{optionType === TargetCount.CURRENT_STREAK ? (
+						t("common.days")
+					) : (
+						<UnitLabel unit={unitType} />
+					)}
 					<span className="slot__unit-avg">
-						{showCalcType && calcMode == CalculationType.AVG ? "/day" : ""}
+						{showCalcType && calcMode == CalculationType.AVG ? t("common.perDay") : ""}
 					</span>
 				</div>
 			</div>
@@ -239,7 +237,7 @@ export const Slot = React.memo(function Slot({
 			)}
 			{optionType === TargetCount.CURRENT_WEEK && (
 				<div className="KTR-week-progress">
-					{weekdaysNames.map((_, index) => (
+					{getWeekdaysNames().map((_, index) => (
 						<div
 							key={index}
 							className={

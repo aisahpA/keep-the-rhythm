@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
-import { weekdaysNames, monthNames } from "../texts";
+import { getWeekdaysNames, getMonthNames } from "../texts";
+import { t } from "@/ui/i18n";
 import { getDateForCell, formatDate, getToday } from "@/utils/dateUtils";
 import { ActivityRecord, DayActivityMap } from "@/defs/types";
 import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
@@ -134,14 +135,25 @@ export const Heatmap = ({
 
 	// ── Month labels ───────────────────────────────────────────
 	const monthLabels = useMemo(() => {
-		const labels: { month: string; week: number; index: number }[] = [];
+		const monthNames = getMonthNames();
+		const labels: {
+			month: string;
+			week: number;
+			index: number;
+			key: string;
+		}[] = [];
 		let lastMonth = -1;
 		let index = 0;
 		for (let week = 0; week < weeksToShow; week++) {
 			const m = moment(getDateForCell(week, 0, weeksToShow, baseDate));
 			const month = m.month();
 			if (month !== lastMonth && m.date() <= 7) {
-				labels.push({ month: monthNames[month], week, index });
+				labels.push({
+					month: monthNames[month],
+					week,
+					index,
+					key: m.format("YYYY-MM"),
+				});
 				lastMonth = month;
 				index++;
 			}
@@ -151,38 +163,40 @@ export const Heatmap = ({
 
 	const squared = !roundCells;
 
-	// Week → month label index lookup for hover highlighting.
-	const monthIndexForWeek = useMemo(() => {
-		const lookup: Record<number, number> = {};
-		for (const label of monthLabels) {
-			lookup[label.week] = label.index;
-		}
-		return lookup;
-	}, [monthLabels]);
+	// Month label index per cell, resolved from each cell's real calendar
+	// month (YYYY-MM) so partial months and boundary weeks highlight exactly.
+	const cellMonthIndices = useMemo(() => {
+		const indexByMonth = new Map(monthLabels.map((l) => [l.key, l.index]));
+		return cellDates.map((date) => indexByMonth.get(date.slice(0, 7)) ?? -1);
+	}, [cellDates, monthLabels]);
 
 	// cellDates is built week-major (week * 7 + day), so array position
 	// yields both indices for hover dimming.
 	const dimmedFor = React.useCallback(
 		(index: number): boolean => {
-			const week = Math.floor(index / 7);
 			const day = index % 7;
-			if (hoveredMonth !== null && monthIndexForWeek[week] !== hoveredMonth) {
+			if (
+				hoveredMonth !== null &&
+				cellMonthIndices[index] !== hoveredMonth
+			) {
 				return true;
 			}
 			if (hoveredWeekday !== null && day !== hoveredWeekday) return true;
 			return false;
 		},
-		[hoveredMonth, hoveredWeekday, monthIndexForWeek],
+		[hoveredMonth, hoveredWeekday, cellMonthIndices],
 	);
 
 	// ── Pre-render historical cells, split at today's position ─
-	const { before, after, hasToday } = useMemo(() => {
+	const { before, after, hasToday, todayIndex } = useMemo(() => {
 		const before: React.ReactNode[] = [];
 		const after: React.ReactNode[] = [];
 		let hasToday = false;
+		let todayIndex = -1;
 		cellDates.forEach((date, index) => {
 			if (date === today) {
 				hasToday = true;
+				todayIndex = index;
 				return;
 			}
 			const count = historicalCellData[date] ?? 0;
@@ -203,7 +217,7 @@ export const Heatmap = ({
 				/>,
 			);
 		});
-		return { before, after, hasToday };
+		return { before, after, hasToday, todayIndex };
 	}, [cellDates, historicalCellData, intensityResolver, squared, intensityMode, today, onCellClick, selectedDate, cellSizePx, unit, dimmedFor]);
 
 	const todayCell = useMemo(() => {
@@ -221,9 +235,10 @@ export const Heatmap = ({
 				isToday
 				onCellClick={onCellClick}
 				selected={today === selectedDate}
+				dimmed={dimmedFor(todayIndex)}
 			/>
 		);
-	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate, cellSizePx, unit]);
+	}, [hasToday, today, todayCellData, squared, intensityResolver, intensityMode, onCellClick, selectedDate, cellSizePx, unit, dimmedFor, todayIndex]);
 
 	const wrapperClasses = useMemo(
 		() =>
@@ -249,7 +264,7 @@ export const Heatmap = ({
 					{!isCodeBlock && (
 						<button
 							className="KTR-min-button heatmap-unit-toggle"
-							aria-label="Change Unit"
+							aria-label={t("heatmap.changeUnit")}
 							ref={(el) => {
 								if (el && !el.dataset.iconSet) {
 									setIcon(el, "case-sensitive");
@@ -271,7 +286,7 @@ export const Heatmap = ({
 					>
 						{!hideWeekdayLabels && (
 							<div className="week-day-labels">
-								{weekdaysNames.map((day, dayIndex) => (
+								{getWeekdaysNames().map((day, dayIndex) => (
 									<div
 										key={day}
 										className="week-day-label"

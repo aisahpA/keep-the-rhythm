@@ -1,18 +1,34 @@
 import { App, Modal, Setting } from "obsidian";
 import { Language } from "@/defs/types";
+import { t } from "@/ui/i18n";
 
-export const LANGUAGE_LABELS: Record<Language, string> = {
-  LATIN: "Latin (English, French, German, Spanish…)",
-  CJK: "Chinese (CJK)",
-  JAPANESE: "Japanese",
-  KOREAN: "Korean",
-  CYRILLIC: "Cyrillic (Russian, Ukrainian…)",
-  GREEK: "Greek",
-  ARABIC: "Arabic",
-  HEBREW: "Hebrew",
-  INDIC: "Indic (Hindi, Tamil…)",
-  SOUTHEAST_ASIAN: "Southeast Asian (Thai, Vietnamese…)",
-};
+export const LANGUAGE_ORDER: Language[] = [
+  "LATIN",
+  "CHINESE",
+  "JAPANESE",
+  "KOREAN",
+  "CYRILLIC",
+  "GREEK",
+  "ARABIC",
+  "HEBREW",
+  "INDIC",
+  "SOUTHEAST_ASIAN",
+];
+
+export function getLanguageLabels(): Record<Language, string> {
+  return {
+    LATIN: t("language.latin"),
+    CHINESE: t("language.chinese"),
+    JAPANESE: t("language.japanese"),
+    KOREAN: t("language.korean"),
+    CYRILLIC: t("language.cyrillic"),
+    GREEK: t("language.greek"),
+    ARABIC: t("language.arabic"),
+    HEBREW: t("language.hebrew"),
+    INDIC: t("language.indic"),
+    SOUTHEAST_ASIAN: t("language.southeastAsian"),
+  };
+}
 
 export class LanguagePickerModal extends Modal {
   private selected: Set<Language>;
@@ -35,24 +51,24 @@ export class LanguagePickerModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h3", { text: "Languages to count" });
+    contentEl.createEl("h3", { text: t("languagePicker.title") });
     contentEl.createEl("p", {
-      text: "Pick which writing systems to count.",
+      text: t("languagePicker.desc"),
     });
 
     const toolbar = contentEl.createDiv({ cls: "modal-button-container" });
     const selectAllButton = toolbar.createEl("button", {
-      text: "Select all",
+      text: t("common.selectAll"),
       cls: "mod-cta",
     });
     selectAllButton.addEventListener("click", () => {
-      for (const lang of Object.keys(LANGUAGE_LABELS) as Language[]) {
+      for (const lang of LANGUAGE_ORDER) {
         this.selected.add(lang);
       }
       this.renderToggles(contentEl);
     });
     const clearButton = toolbar.createEl("button", {
-      text: "Clear",
+      text: t("common.clear"),
     });
     clearButton.addEventListener("click", () => {
       this.selected.clear();
@@ -63,11 +79,11 @@ export class LanguagePickerModal extends Modal {
 
     new Setting(contentEl)
       .addButton((button) =>
-        button.setButtonText("Cancel").onClick(() => this.close()),
+        button.setButtonText(t("common.cancel")).onClick(() => this.close()),
       )
       .addButton((button) =>
         button
-          .setButtonText("Save")
+          .setButtonText(t("common.save"))
           .setCta()
           .onClick(() => {
             this.onConfirm([...this.selected]);
@@ -81,9 +97,10 @@ export class LanguagePickerModal extends Modal {
     const wrapper = existing ?? container.createDiv({ cls: "ktr-language-picker-list" });
     wrapper.empty();
 
-    for (const lang of Object.keys(LANGUAGE_LABELS) as Language[]) {
+    const labels = getLanguageLabels();
+    for (const lang of LANGUAGE_ORDER) {
       new Setting(wrapper)
-        .setName(LANGUAGE_LABELS[lang])
+        .setName(labels[lang])
         .addToggle((toggle) =>
           toggle
             .setValue(this.selected.has(lang))

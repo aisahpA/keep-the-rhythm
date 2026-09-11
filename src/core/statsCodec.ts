@@ -2,7 +2,6 @@ import {
 	ActivityCounts,
 	DayActivityMap,
 	DaysMap,
-	LegacyActivityData,
 	PersistedBaselines,
 	PersistedDaysMap,
 	PersistedFileDict,
@@ -10,8 +9,8 @@ import {
 
 /*
  * Stats codec — the ONLY module that knows about the split between the
- * persisted shape (dictionary-encoded maps in data.json) and the store's
- * runtime state (full file paths everywhere).
+ * persisted shape (dictionary-encoded maps in the stats data file) and
+ * the store's runtime state (full file paths everywhere).
  *
  *   Persisted                                   Runtime (store)
  *   ─────────                                   ─────────────────
@@ -23,10 +22,6 @@ import {
  *   Dictionary encoding replaces repeated file-path strings in `days`
  *   and `todayBaselines` with small integer IDs, cutting storage by
  *   ~60–65% for multi-month histories.
- *
- *   Backward compat: legacy `stats.dailyActivity` (array of rows) is
- *   accepted transparently on decode and migrated. Encoding always
- *   writes the new dictionary-encoded format.
  */
 
 // ─── File dictionary cache ───
@@ -70,10 +65,9 @@ export interface DecodedActivities {
 
 type StatsInput =
 	| {
-			days?: DaysMap | PersistedDaysMap;
+			days?: PersistedDaysMap;
 			fileDict?: PersistedFileDict;
 			todayBaselines?: PersistedBaselines;
-			dailyActivity?: LegacyActivityData[];
 	  }
 	| undefined;
 
@@ -87,17 +81,6 @@ function buildIdToPath(fileDict: PersistedFileDict): string[] {
 	const idToPath: string[] = [];
 	for (const [path, id] of Object.entries(fileDict)) idToPath[id] = path;
 	return idToPath;
-}
-
-function legacyRowsToDays(rows: LegacyActivityData[] | undefined): DaysMap {
-	const days: DaysMap = {};
-	for (const r of rows ?? []) {
-		// Legacy rows carry only a word delta; char counts can't be
-		// reconstructed, so they start at the word value's length shadow:
-		// a 0-char history keeps char mode honest (no invented data).
-		(days[r.date] ??= {})[r.filePath] = { w: r.wordsAdded, c: 0 };
-	}
-	return days;
 }
 
 /**
@@ -122,24 +105,15 @@ function encodeDayMap(
 /**
  * Decode a single dictionary-encoded day map (id → value) back to
  * (path → value) using the given id→path array.
- *
- * Values persisted before the {w,c} format were plain numbers (word deltas).
- * Those are upgraded to `{ w, c: 0 }` so existing data keeps its word
- * history while char mode starts empty (no invented data).
  */
 function decodeDayMap(
-	encoded: Record<string, number | ActivityCounts>,
+	encoded: Record<string, ActivityCounts>,
 	idToPath: string[],
 ): DayActivityMap {
 	const day: DayActivityMap = {};
 	for (const [idStr, val] of Object.entries(encoded)) {
 		const path = idToPath[Number(idStr)];
-		if (path !== undefined) {
-			day[path] =
-				typeof val === "number"
-					? { w: val, c: 0 }
-					: { w: val.w ?? 0, c: val.c ?? 0 };
-		}
+		if (path !== undefined) day[path] = val;
 	}
 	return day;
 }
@@ -210,32 +184,21 @@ function ensureEncodedDays(
 }
 
 /**
- * Decode the persisted `days` into the store's path-keyed shape.  Handles
- * the two real-world input shapes:
- *
- *   1. Dictionary-encoded (fileDict present, id-keyed days) — current
- *   2. Legacy `dailyActivity` array — the historical structure on master
- *
- * The intermediate plain path-keyed `days` shape (no fileDict) was written
- * but never officially released, so it is not handled here.
+ * Decode the persisted `days` into the store's path-keyed shape
+ * (dictionary-encoded, fileDict present).
  */
 function decodeDays(stats: StatsInput): DaysMap {
-	const rawDays = stats?.days;
-	if (hasFileDict(stats) && rawDays && Object.keys(rawDays).length > 0) {
-		const idToPath = buildIdToPath(stats.fileDict);
-		const days: DaysMap = {};
-		for (const [date, encDay] of Object.entries(rawDays)) {
-			days[date] = decodeDayMap(encDay, idToPath);
-		}
-		return days;
+	if (!hasFileDict(stats)) return {};
+	const idToPath = buildIdToPath(stats.fileDict);
+	const days: DaysMap = {};
+	for (const [date, encDay] of Object.entries(stats.days ?? {})) {
+		days[date] = decodeDayMap(encDay, idToPath);
 	}
-	return legacyRowsToDays(stats?.dailyActivity);
+	return days;
 }
 
 /**
- * Decode today's baselines.  Baselines follow the same encoding rule as
- * `days` (id-keyed when a fileDict is present);
- * legacy `dailyActivity` rows carry today's starting word count inline.
+ * Decode today's baselines (same dictionary encoding as `days`).
  */
 function decodeBaselines(
 	stats: StatsInput,
@@ -243,38 +206,14 @@ function decodeBaselines(
 ): { todayBaselines: DayActivityMap; todayBaselinesDay: string | null } {
 	const persisted = stats?.todayBaselines;
 	if (persisted?.day === today && persisted.baselines && hasFileDict(stats)) {
-		const day: DayActivityMap = {};
-		for (const [idStr, val] of Object.entries(persisted.baselines)) {
-			const path = buildIdToPath(stats.fileDict)[Number(idStr)];
-			if (path !== undefined) {
-				day[path] =
-					typeof val === "number"
-						? { w: val, c: 0 }
-						: { w: val.w ?? 0, c: val.c ?? 0 };
-			}
-		}
 		return {
-			todayBaselines: day,
+			todayBaselines: decodeDayMap(
+				persisted.baselines,
+				buildIdToPath(stats.fileDict),
+			),
 			todayBaselinesDay: today,
 		};
 	}
-
-	if (stats?.dailyActivity) {
-		const todayBaselines: DayActivityMap = {};
-		for (const r of stats.dailyActivity) {
-			if (r.date === today) {
-				todayBaselines[r.filePath] = {
-					w: r.wordCountStart,
-					c: 0,
-				};
-			}
-		}
-		return {
-			todayBaselines,
-			todayBaselinesDay: Object.keys(todayBaselines).length > 0 ? today : null,
-		};
-	}
-
 	return { todayBaselines: {}, todayBaselinesDay: null };
 }
 
@@ -314,8 +253,7 @@ function filterOrphanedFileDict(
 
 /**
  * Decode the persisted `stats` section into the store's single `days`
- * map plus the current-day baselines.  Legacy rows for today also seed
- * baselines from their `wordCountStart`.
+ * map plus the current-day baselines.
  */
 export function decodeActivities(
 	stats: StatsInput,

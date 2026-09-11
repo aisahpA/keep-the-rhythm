@@ -11,13 +11,17 @@ import * as events from "@/core/events";
 import * as codeBlocks from "@/core/codeBlocks";
 import { activateSidebarView, insertCustomCodeBlock } from "@/core/commands";
 import { CUSTOM_CODE_BLOCK_COMMANDS } from "@/core/codeBlockTemplates";
-import { snapshotRawDataFile } from "@/core/backup";
+import {
+	snapshotRawDataFile,
+	loadStatsData,
+} from "@/core/backup";
 import {
 	setupPersistenceScheduling,
 	PersistenceScheduler,
+	checkExternalStatsFile,
 } from "@/core/dataPersistence";
-import { handleExternalDataChange } from "@/core/externalSync";
-import { PluginData } from "@/defs/types";
+import { mergeExternalSettings } from "@/core/externalSync";
+import { PluginData, normalizeSettings } from "@/defs/types";
 import { resetDailySummaryCache } from "@/utils/dailySummaryCache";
 import { resetStatsCodecCache } from "@/core/statsCodec";
 import { resetDataQueryCaches } from "@/core/dataQueries";
@@ -25,12 +29,6 @@ import { resetFolderCache } from "@/core/pathFilter";
 
 export default class KeepTheRhythm extends Plugin {
 	
-	private onFocusHandler: () => void = () => useStore.getState().checkDayChange();
-	private onPageHideHandler: () => void = () => void this.flushNow();
-	private onVisibilityHandler: () => void = () => {
-		if (document.hidden) void this.flushNow();
-	};
-
 	// Persistence scheduler with debounce state and unsubscribe handle
 	private persistenceScheduler: PersistenceScheduler | null = null;
 
@@ -39,19 +37,18 @@ export default class KeepTheRhythm extends Plugin {
 	async onload() {
 		setPlugin(this);
 
-		// No DB to initialise — the in-memory store is empty until
-		// we hydrate it from data.json below.
-		const loadedData = (await this.loadData()) as PluginData;
+		const loadedData = (await this.loadData()) as PluginData | null;
+		const settings = normalizeSettings(loadedData?.settings);
+		const statsData = await loadStatsData(this, settings);
 
-		// Sync Zustand store with loaded data before any React
+		// Sync Zustand store with the loaded data before any React
 		// component mounts.  After this point, store.settings /
 		// store.today are all populated.
-		useStore.getState().hydrateFromData(loadedData);
+		useStore.getState().hydrateFromData({ settings, stats: statsData?.stats });
 
-		// Snapshot the on-disk data.json BEFORE anything can overwrite it
-		// (hydrate → persist).  Write-once per day: the retained copy is
-		// always the pre-reset state captured at the first open.
-		await snapshotRawDataFile(this, this.app, loadedData);
+		// Once-per-day snapshot of the on-disk stats file BEFORE anything
+		// can overwrite it (hydrate → persist).
+		await snapshotRawDataFile(this, this.app, settings);
 
 		/** Initialize SIDEBAR view */
 		this.registerView(VIEW_TYPE, (leaf) => {
@@ -73,15 +70,48 @@ export default class KeepTheRhythm extends Plugin {
 		// prevents racing saves when only an in-memory activity object was
 		// mutated before flushChangesToJSON.
 		this.persistenceScheduler = setupPersistenceScheduling(this);
+		
+		this.registerLifecycleEvents();
+	}
 
-		window.addEventListener("focus", this.onFocusHandler);
-		window.addEventListener("pagehide", this.onPageHideHandler);
-		document.addEventListener("visibilitychange", this.onVisibilityHandler);
+	/**
+	 * Wake/suspend lifecycle wiring, registered via registerDomEvent /
+	 * registerInterval so unload cleanup is automatic.
+	 *
+	 * "Wake" (focus, becoming visible again) re-runs the day-rollover and
+	 * external-stats checks — the fallback for mobile, where window focus
+	 * may never fire on resume but visibilitychange does.
+	 *
+	 * "Suspend" (pagehide, becoming hidden) force-drains pending edits
+	 * because requestAnimationFrame is paused in background tabs.
+	 *
+	 * The 5s sweep (pattern borrowed from position-restore's db flush) is
+	 * the external-stats pickup for every path and window state — idle or
+	 * not, default .obsidian path or not.  The mtime sentinel makes each
+	 * tick a free stat() call, bounding adoption latency at ≤5s.
+	 */
+	private registerLifecycleEvents() {
+		const onWake = () => {
+			useStore.getState().checkDayChange();
+			void checkExternalStatsFile(this);
+		};
+		const onSuspend = () => void this.flushNow();
+
+		this.registerDomEvent(window, "focus", onWake);
+		this.registerDomEvent(window, "pagehide", onSuspend);
+		this.registerDomEvent(document, "visibilitychange", () => {
+			if (document.hidden) onSuspend();
+			else onWake();
+		});
+		this.registerInterval(
+			window.setInterval(() => void checkExternalStatsFile(this), 5000),
+		);
 	}
 
 	/**
 	 * Drain any pending editor-change sample into the in-memory store
-	 * and immediately persist the store to data.json.  Used by the
+	 * and immediately persist the store (settings → data.json, stats →
+	 * the stats file).  Used by the
 	 * visibilitychange / pagehide handlers (because requestAnimationFrame
 	 * is paused in background tabs) and during plugin unload so a
 	 * coalesced debounced save still lands on disk before the scheduler
@@ -163,11 +193,7 @@ export default class KeepTheRhythm extends Plugin {
 	// #region Unloading
 
 	onunload() {
-		window.removeEventListener("focus", this.onFocusHandler);
-		window.removeEventListener("pagehide", this.onPageHideHandler);
-		document.removeEventListener("visibilitychange", this.onVisibilityHandler);
-
-		// Drain pending editor deltas and persist to data.json before
+		// Drain pending editor deltas and persist to disk before
 		// tearing down the scheduler, so a coalesced debounced save
 		// still lands on disk.  Obsidian does not await onunload, so the
 		// promise is fire-and-forget here.
@@ -191,7 +217,13 @@ export default class KeepTheRhythm extends Plugin {
 	// #endregion
 
 	async onExternalSettingsChange() {
-		await handleExternalDataChange(this);
+		// data.json (settings) is pushed by Obsidian; merge it, then run one
+		// cheap mtime check on the stats file — a sync that delivers
+		// data.json usually delivers the stats file around the same time.
+		await mergeExternalSettings(
+			(await this.loadData()) as PluginData | null,
+		);
+		await checkExternalStatsFile(this);
 	}
 
 }
