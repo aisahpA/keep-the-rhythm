@@ -1,3 +1,14 @@
+.KTR-unit-icon {
+	display: inline-flex;
+	align-items: center;
+	vertical-align: -0.15em;
+
+	.svg-icon {
+		width: 1em;
+		height: 1em;
+	}
+}
+
 :root {
 	--spring-easing: linear(
 		0,

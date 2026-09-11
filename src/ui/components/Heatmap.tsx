@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
-import { weekdaysNames, monthNames } from "../texts";
+import { getWeekdaysNames, getMonthNames } from "../texts";
+import { t } from "@/ui/i18n";
 import { getDateForCell, formatDate, getToday } from "@/utils/dateUtils";
 import { ActivityRecord, DayActivityMap } from "@/defs/types";
 import { HeatmapColorModes, HeatmapConfig } from "@/defs/types";
@@ -134,6 +135,7 @@ export const Heatmap = ({
 
 	// ── Month labels ───────────────────────────────────────────
 	const monthLabels = useMemo(() => {
+		const monthNames = getMonthNames();
 		const labels: {
 			month: string;
 			week: number;
@@ -262,7 +264,7 @@ export const Heatmap = ({
 					{!isCodeBlock && (
 						<button
 							className="KTR-min-button heatmap-unit-toggle"
-							aria-label="Change Unit"
+							aria-label={t("heatmap.changeUnit")}
 							ref={(el) => {
 								if (el && !el.dataset.iconSet) {
 									setIcon(el, "case-sensitive");
@@ -284,7 +286,7 @@ export const Heatmap = ({
 					>
 						{!hideWeekdayLabels && (
 							<div className="week-day-labels">
-								{weekdaysNames.map((day, dayIndex) => (
+								{getWeekdaysNames().map((day, dayIndex) => (
 									<div
 										key={day}
 										className="week-day-label"

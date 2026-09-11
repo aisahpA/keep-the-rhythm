@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { HeatmapColorModes, Unit } from "../../defs/types";
 import * as obsidian from "obsidian";
 import { Tooltip } from "./Tooltip";
+import { UnitLabel } from "./UnitLabel";
 import { getCorePluginSettings } from "../../utils/windowUtility";
 import { getPlugin } from "@/core/pluginRegistry";
 import { useStore } from "@/core/store";
@@ -120,18 +121,16 @@ export const HeatmapCell = React.memo(function HeatmapCell({
 		height: cellSize,
 	} as React.CSSProperties & Record<string, string | number>;
 
-	const unitLabel = unit === Unit.CHAR ? "chars" : "words";
-
 	const tooltipContent = useMemo(
 		() => (
 			<>
 				<strong>{date}</strong>
 				<div>
-					{count.toLocaleString()} {unitLabel}
+					{count.toLocaleString()} <UnitLabel unit={unit ?? Unit.WORD} />
 				</div>
 			</>
 		),
-		[date, count, unitLabel],
+		[date, count, unit],
 	);
 
 	return (

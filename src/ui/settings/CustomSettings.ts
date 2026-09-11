@@ -1,12 +1,14 @@
 import { Setting } from "obsidian";
-import { ColorConfig, HeatmapColorModes } from "@/defs/types";
+import { ColorConfig, HeatmapColorModes, Unit } from "@/defs/types";
 import { DEFAULT_SETTINGS } from "@/defs/types";
 import { ConfirmationModal } from "./ConfirmationModal";
-import { LanguagePickerModal, LANGUAGE_LABELS } from "./LanguagePickerModal";
+import { IconPickerModal } from "./IconPickerModal";
+import { LanguagePickerModal, getLanguageLabels } from "./LanguagePickerModal";
 import { getPlugin } from "@/core/pluginRegistry";
 import { useStore } from "@/core/store";
 import { applyHeatmapColorStyles } from "@/ui/styles/applyColorStyles";
 import { getSettingsTab } from "./SettingsTab";
+import { t } from "@/ui/i18n";
 
 // ------------------------
 // Color pickers for light/dark themes
@@ -54,7 +56,10 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
     button.onClick(() => {
       new ConfirmationModal(
         getPlugin().app,
-        `Are you sure you want to reset the ${theme} theme colors to their default values?`,
+        t(
+          "settings.colorReset.confirm",
+          t(theme === "light" ? "settings.theme.light" : "settings.theme.dark"),
+        ),
         () => {
           useStore.getState().mutateSettings((draft) => {
             if (draft.heatmapConfig.colors) {
@@ -77,13 +82,14 @@ export function createColorSettings(setting: Setting, theme: "light" | "dark") {
 export function createLanguageDropdown(setting: Setting) {
   const settings = useStore.getState().settings;
   const enabled = settings.enabledLanguages || [];
+  const labels = getLanguageLabels();
 
   const summary =
     enabled.length === 0
-      ? "None"
+      ? t("common.none")
       : enabled.length === 1
-        ? LANGUAGE_LABELS[enabled[0]]
-        : `${LANGUAGE_LABELS[enabled[0]]}, ${LANGUAGE_LABELS[enabled[1]]}${enabled.length > 2 ? ` +${enabled.length - 2}` : ""}`;
+        ? labels[enabled[0]]
+        : `${labels[enabled[0]]}, ${labels[enabled[1]]}${enabled.length > 2 ? ` +${enabled.length - 2}` : ""}`;
 
   setting.addButton((button) => {
     button.setButtonText(summary).onClick(() => {
@@ -101,6 +107,26 @@ export function createLanguageDropdown(setting: Setting) {
       ).open();
     });
   });
+}
+
+// ------------------------
+// Unit icon picker
+// ------------------------
+export function createUnitIconSetting(setting: Setting, unit: Unit) {
+	setting.addExtraButton((button) => {
+		const current = () => useStore.getState().settings.unitIcons[unit] || "type";
+		const apply = (icon: string) => button.setIcon(icon || "type");
+		apply(current());
+
+		button.setTooltip(t("settings.unitIcon.pick")).onClick(() => {
+			new IconPickerModal(getPlugin().app, current(), (icon) => {
+				useStore.getState().mutateSettings((draft) => {
+					draft.unitIcons[unit] = icon;
+				});
+				apply(icon);
+			}).open();
+		});
+	});
 }
 
 // ------------------------
@@ -134,7 +160,12 @@ export function createColorModeSettings(setting: Setting) {
 
   setting.addDropdown((dropdown) => {
     dropdown
-      .addOptions({ ...HeatmapColorModes })
+      .addOptions({
+        STOPS: t("settings.coloringMode.options.stops"),
+        GRADUAL: t("settings.coloringMode.options.gradual"),
+        SOLID: t("settings.coloringMode.options.solid"),
+        LIQUID: t("settings.coloringMode.options.liquid"),
+      })
       .setValue(settings.heatmapConfig.intensityMode.toUpperCase())
       .onChange((value) => {
         changeColorMode(value);
@@ -171,12 +202,12 @@ export function createThresholdSettings(setting: Setting) {
 		const goal = settings.dailyWritingGoal;
 		const info = setting.controlEl.createSpan({ cls: "ktr__threshold-solid-info" });
 		info.createSpan({
-			text: `Days are filled when their word count reaches your Writing Goal (${goal} words). The threshold follows the Writing Goal setting.`,
+			text: t("settings.thresholds.solidInfo", goal),
 		});
 		if (goal <= 0) {
 			info.createSpan({
 				cls: "ktr__threshold-solid-warn",
-				text: " Note: with a goal of 0 every day counts as met.",
+				text: t("settings.thresholds.solidWarn"),
 			});
 		}
 		return;
@@ -187,20 +218,18 @@ export function createThresholdSettings(setting: Setting) {
 		label: string;
 	}[] = [];
 
-	thresholds.push({ key: "low", label: "Low" });
+	thresholds.push({ key: "low", label: t("settings.thresholds.low") });
 	if (intensityMode === HeatmapColorModes.STOPS)
-		thresholds.push({ key: "medium", label: "Medium" });
+		thresholds.push({ key: "medium", label: t("settings.thresholds.medium") });
 
-	thresholds.push({ key: "high", label: "High" });
+	thresholds.push({ key: "high", label: t("settings.thresholds.high") });
 
 	const hint = setting.controlEl.createSpan({ cls: "ktr__threshold-hint" });
 	if (intensityMode === HeatmapColorModes.STOPS) {
-		hint.setText(
-			"0 Words → level 0 (uncolored); under low → level 1; Low–medium → level 2; Medium–high → level 3; above high → level 4 (strongest color).",
-		);
+		hint.setText(t("settings.thresholds.stopsHint"));
 	} else {
 		hint.setText(
-			`Below Low (${intensityStops.low} words) cells stay uncolored; above High (${intensityStops.high} words) they reach full intensity. Days in between blend on a continuous scale.`,
+			t("settings.thresholds.rangeHint", intensityStops.low, intensityStops.high),
 		);
 	}
 
@@ -216,7 +245,7 @@ export function createThresholdSettings(setting: Setting) {
 		});
 		const valueEl = wrapper.createSpan({
 			cls: "ktr__threshold-slider-value",
-			text: `${intensityStops[key]} words`,
+			text: t("settings.thresholds.words", intensityStops[key]),
 		});
 
 		slider.value = String(thresholdValueToPos(Math.max(THRESHOLD_MIN, intensityStops[key])));
@@ -240,7 +269,7 @@ export function createThresholdSettings(setting: Setting) {
 					[key]: value,
 				};
 			});
-			valueEl.setText(`${value} words`);
+			valueEl.setText(t("settings.thresholds.words", value));
 		});
 	});
 }

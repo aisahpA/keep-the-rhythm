@@ -3,6 +3,18 @@ export enum Unit {
 	CHAR = "CHAR",
 }
 
+/** How count units are rendered in the UI. */
+export enum UnitDisplay {
+	TEXT = "TEXT",
+	ICON = "ICON",
+}
+
+/** A value (icon id or label) per count unit. */
+export interface UnitStrings {
+	WORD: string;
+	CHAR: string;
+}
+
 /**
  * The two counts tracked per (date, filePath): words added and characters
  * added that day.  Stored together so both the word and char views of any
@@ -134,6 +146,12 @@ export interface Settings {
 	dailyWritingGoal: number;
 	/** Default unit used when displaying counts (words or characters). */
 	preferredUnit: Unit;
+	/** Whether count units are shown as text or as an icon. */
+	unitDisplay: UnitDisplay;
+	/** Lucide icon id per unit, used when unitDisplay is ICON. */
+	unitIcons: UnitStrings;
+	/** Custom label per unit, used when unitDisplay is TEXT (empty = localized default). */
+	unitTexts: UnitStrings;
 	enabledLanguages: Language[]; // guides the definition of REGEXes for word counting
 	/** Skip Obsidian comments (%% ... %%) when counting words/chars. */
 	ignoreComments: boolean;
@@ -248,6 +266,9 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledLanguages: ["LATIN"],
 	dailyWritingGoal: 500,
 	preferredUnit: Unit.WORD,
+	unitDisplay: UnitDisplay.TEXT,
+	unitIcons: { WORD: "type", CHAR: "case-sensitive" },
+	unitTexts: { WORD: "", CHAR: "" },
 	ignoreComments: false,
 	ignoreTasks: false,
 	ignoreDeletedFiles: false,

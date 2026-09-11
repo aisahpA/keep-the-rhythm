@@ -1,42 +1,60 @@
+import { t } from "./i18n";
 import { TargetCount } from "@/defs/types";
 
-export const weekdaysNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-export const monthNames = [
-	"Jan",
-	"Feb",
-	"Mar",
-	"Apr",
-	"May",
-	"Jun",
-	"Jul",
-	"Aug",
-	"Sep",
-	"Oct",
-	"Nov",
-	"Dec",
-];
+const WEEKDAY_KEYS = [
+	"weekday.mon",
+	"weekday.tue",
+	"weekday.wed",
+	"weekday.thu",
+	"weekday.fri",
+	"weekday.sat",
+	"weekday.sun",
+] as const;
 
-export function getSlotLabel(option: TargetCount) {
+const MONTH_KEYS = [
+	"month.1",
+	"month.2",
+	"month.3",
+	"month.4",
+	"month.5",
+	"month.6",
+	"month.7",
+	"month.8",
+	"month.9",
+	"month.10",
+	"month.11",
+	"month.12",
+] as const;
+
+export function getWeekdaysNames(): string[] {
+	return WEEKDAY_KEYS.map((key) => t(key));
+}
+
+export function getMonthNames(): string[] {
+	return MONTH_KEYS.map((key) => t(key));
+}
+
+export function getSlotLabel(option: TargetCount): string {
 	switch (option) {
 		case TargetCount.CURRENT_FILE:
-			return "This File";
+			return t("slot.currentFile");
 		case TargetCount.CURRENT_DAY:
-			return "Today";
+			return t("slot.currentDay");
 		case TargetCount.CURRENT_WEEK:
-			return "This Week";
+			return t("slot.currentWeek");
 		case TargetCount.CURRENT_MONTH:
-			return "This Month";
+			return t("slot.currentMonth");
 		case TargetCount.CURRENT_YEAR:
-			return "This Year";
+			return t("slot.currentYear");
 		case TargetCount.LAST_DAY:
-			return "Last 2 Days";
+			return t("slot.lastDay");
 		case TargetCount.LAST_WEEK:
-			return "Last 7 Days";
+			return t("slot.lastWeek");
 		case TargetCount.LAST_MONTH:
-			return "Last 30 Days";
+			return t("slot.lastMonth");
 		case TargetCount.LAST_YEAR:
-			return "Last Year";
+			return t("slot.lastYear");
 		case TargetCount.CURRENT_STREAK:
-			return "Streak";
+			return t("slot.currentStreak");
 	}
 }

@@ -3,6 +3,7 @@ import { useStore } from "@/core/store";
 import { getCurrentCount } from "@/core/dataQueries";
 import { TargetCount } from "@/defs/types";
 import { activateSidebarView } from "@/core/commands";
+import { t } from "@/ui/i18n";
 
 const ICON = "type";
 
@@ -60,7 +61,7 @@ export class TodayWordsStatusBar {
 		});
 		this.itemEl.setAttribute(
 			"aria-label",
-			`Today's word count: ${words.toLocaleString()} of ${goal.toLocaleString()}`,
+			t("statusBar.aria", words.toLocaleString(), goal.toLocaleString()),
 		);
 	}
 
