@@ -49,7 +49,7 @@ export async function snapshotRawDataFile(
 		new Notice("Ktr: New backup saved.");
 	} catch (err) {
 		console.error("KTR Error trying to create backup: ", err);
-		new Notice("KTR: Backup failed — see developer console for details.", 0);
+		new Notice("Ktr: Backup failed — see developer console for details.", 0);
 	}
 
 	await cleanOlderBackups(folderPath, config.maxNumberOfBackups ?? DEFAULT_BACKUP_DAYS, app);
@@ -75,7 +75,7 @@ export async function loadStatsData(
 	const restored = await newestBackupStats(plugin.app, settings);
 	if (!restored) return statsData;
 	console.warn("KTR: stats file was empty — restored from backup");
-	new Notice("KTR: stats file was empty — restored from backup.", 0);
+	new Notice("Ktr: stats file was empty — restored from backup.", 0);
 	return restored;
 }
 
