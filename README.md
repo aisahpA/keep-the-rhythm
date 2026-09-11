@@ -30,6 +30,15 @@ Compared with upstream [`benjaminezequiel/keep-the-rhythm`](https://github.com/b
 
 ## Installation
 
+#### BRAT INSTALLATION
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin and enable it.
+2. Run the command `BRAT: Add a beta plugin for testing`.
+3. Enter `aisahpA/keep-the-rhythm`.
+4. Click **Add Plugin**, then enable **Keep the Rhythm2** in Settings → Community plugins.
+
+BRAT keeps the plugin updated from this repository's releases.
+
 #### MANUAL INSTALLATION
 
 1. Download `main.js`, `manifest.json` and `styles.css` from this repository's Releases section.
