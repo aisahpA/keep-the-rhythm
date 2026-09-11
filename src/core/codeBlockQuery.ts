@@ -189,6 +189,9 @@ function buildOptionsConfig(optionsText: string): HeatmapConfig {
 			case "ROUNDED_CELLS":
 				config.roundCells = true;
 				break;
+			case "CENTER":
+				config.center = true;
+				break;
 			case "WEEKS":
 				config.numberOfWeeks = Number(details) || 20;
 				break;

@@ -27,6 +27,11 @@
 
 .heatmap-codeblock {
 	width: 100%;
+
+	&.center .heatmap-container {
+		display: flex;
+		justify-content: center;
+	}
 }
 
 // MODAL

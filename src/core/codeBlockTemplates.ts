@@ -12,6 +12,7 @@ export function getCustomCodeBlockTemplate(type: CustomCodeBlockType): string {
 				"COLORING_MODE liquid",
 				"STOPS 100, 500, 1000",
 				"WEEKS 24",
+				"CENTER",
 				"UNIT WORDS",
 				"```",
 			].join("\n");
