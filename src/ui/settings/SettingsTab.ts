@@ -53,7 +53,44 @@ export class SettingsTab extends PluginSettingTab {
     return [
       {
         type: "group",
-        heading: t("group.general"),
+        heading: t("group.counting"),
+        items: [
+          {
+            name: t("settings.enabledLanguages.name"),
+            desc: t("settings.enabledLanguages.desc"),
+            render: (s: Setting) => {
+              createLanguageDropdown(s);
+            },
+          },
+          {
+            name: t("settings.ignoreComments.name"),
+            desc: t("settings.ignoreComments.desc"),
+            control: {
+              type: "toggle",
+              key: "ignoreComments",
+            },
+          },
+          {
+            name: t("settings.ignoreTasks.name"),
+            desc: t("settings.ignoreTasks.desc"),
+            control: {
+              type: "toggle",
+              key: "ignoreTasks",
+            },
+          },
+          {
+            name: t("settings.ignoreDeletedFiles.name"),
+            desc: t("settings.ignoreDeletedFiles.desc"),
+            control: {
+              type: "toggle",
+              key: "ignoreDeletedFiles",
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("group.units"),
         items: [
           {
             name: t("settings.preferredUnit.name"),
@@ -115,37 +152,12 @@ export class SettingsTab extends PluginSettingTab {
               placeholder: t("common.chars"),
             },
           },
-          {
-            name: t("settings.enabledLanguages.name"),
-            desc: t("settings.enabledLanguages.desc"),
-            render: (s: Setting) => {
-              createLanguageDropdown(s);
-            },
-          },
-          {
-            name: t("settings.ignoreComments.name"),
-            desc: t("settings.ignoreComments.desc"),
-            control: {
-              type: "toggle",
-              key: "ignoreComments",
-            },
-          },
-          {
-            name: t("settings.ignoreTasks.name"),
-            desc: t("settings.ignoreTasks.desc"),
-            control: {
-              type: "toggle",
-              key: "ignoreTasks",
-            },
-          },
-          {
-            name: t("settings.ignoreDeletedFiles.name"),
-            desc: t("settings.ignoreDeletedFiles.desc"),
-            control: {
-              type: "toggle",
-              key: "ignoreDeletedFiles",
-            },
-          },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("group.goals"),
+        items: [
           {
             name: t("settings.writingGoal.name"),
             desc: t("settings.writingGoal.desc"),
@@ -212,6 +224,7 @@ export class SettingsTab extends PluginSettingTab {
         items: [
           {
             name: t("settings.heatmapNavigation.name"),
+            desc: t("settings.heatmapNavigation.desc"),
             control: {
               type: "toggle",
               key: "heatmapNavigation",
@@ -240,6 +253,7 @@ export class SettingsTab extends PluginSettingTab {
           },
           {
             name: t("settings.alignLeft.name"),
+            desc: t("settings.alignLeft.desc"),
             control: {
               type: "toggle",
               key: "heatmapConfig.alignLeft",
@@ -254,6 +268,7 @@ export class SettingsTab extends PluginSettingTab {
           },
           {
             name: t("settings.numberOfWeeks.name"),
+            desc: t("settings.numberOfWeeks.desc"),
             control: {
               type: "number",
               key: "heatmapConfig.numberOfWeeks",
@@ -268,6 +283,12 @@ export class SettingsTab extends PluginSettingTab {
               placeholder: "10",
             },
           },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("group.colors"),
+        items: [
           {
             name: t("settings.coloringMode.name"),
             desc: t("settings.coloringMode.desc"),
@@ -300,7 +321,7 @@ export class SettingsTab extends PluginSettingTab {
       },
       {
         type: "group",
-        heading: t("group.sidebar"),
+        heading: t("group.interface"),
         items: [
           {
             name: t("settings.showOverview.name"),
@@ -326,12 +347,6 @@ export class SettingsTab extends PluginSettingTab {
               key: "sidebarConfig.visibility.showHeatmap",
             },
           },
-        ],
-      },
-      {
-        type: "group",
-        heading: t("group.statusBar"),
-        items: [
           {
             name: t("settings.statusBar.name"),
             desc: t("settings.statusBar.desc"),
@@ -344,7 +359,7 @@ export class SettingsTab extends PluginSettingTab {
       },
       {
         type: "group",
-        heading: t("group.dataStorage"),
+        heading: t("group.data"),
         items: [
           {
             name: t("settings.statsFile.name"),
@@ -390,12 +405,6 @@ export class SettingsTab extends PluginSettingTab {
               );
             },
           },
-        ],
-      },
-      {
-        type: "group",
-        heading: t("group.backup"),
-        items: [
           {
             name: t("settings.automaticBackups.name"),
             desc: t("settings.automaticBackups.desc"),

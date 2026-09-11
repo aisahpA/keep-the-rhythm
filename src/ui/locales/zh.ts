@@ -2,14 +2,28 @@ import type { En } from "./en";
 
 export const zh: En = {
 	// Groups
-	"group.general": "常规",
+	"group.counting": "统计",
+	"group.units": "单位显示",
+	"group.goals": "目标与范围",
 	"group.heatmaps": "热力图",
-	"group.sidebar": "侧边栏",
-	"group.statusBar": "状态栏",
-	"group.dataStorage": "数据存储",
-	"group.backup": "备份",
+	"group.colors": "热力图颜色",
+	"group.interface": "界面",
+	"group.data": "数据",
 
-	// General
+	// Counting
+	"settings.enabledLanguages.name": "启用的语言",
+	"settings.enabledLanguages.desc": "选择要统计的书写系统。",
+	"settings.ignoreComments.name": "忽略注释",
+	"settings.ignoreComments.desc":
+		"Obsidian 注释（%% ... %%）不计入字数和字符数。",
+	"settings.ignoreTasks.name": "忽略任务",
+	"settings.ignoreTasks.desc":
+		'形如 “- [ ] buy milk” 的任务行完全不计入。无论此设置如何，复选框语法始终排除。更改此设置不会追溯更新历史记录。',
+	"settings.ignoreDeletedFiles.name": "忽略已删除的文件",
+	"settings.ignoreDeletedFiles.desc":
+		"删除文件不会从每日总计中扣除其字数和字符数。",
+
+	// Units
 	"settings.preferredUnit.name": "首选单位",
 	"settings.preferredUnit.desc": "显示计数时使用的默认单位。",
 	"settings.preferredUnit.options.word": "字数",
@@ -22,23 +36,14 @@ export const zh: En = {
 	"settings.unitIcon.char.name": "字符单位图标",
 	"settings.unitIcon.desc": "单位样式设为图标时，用于表示该计数单位的图标。",
 	"settings.unitIcon.pick": "选择图标",
-	"settings.unitText.word.name": "字单位文字",
-	"settings.unitText.char.name": "字符单位文字",
-	"settings.unitText.desc": "单位样式设为文字时使用的自定义标签。留空则使用默认文字。",
 	"iconPicker.title": "选择图标",
 	"iconPicker.search": "搜索图标...",
 	"iconPicker.empty": "未找到图标",
-	"settings.enabledLanguages.name": "启用的语言",
-	"settings.enabledLanguages.desc": "选择要统计的书写系统。",
-	"settings.ignoreComments.name": "忽略注释",
-	"settings.ignoreComments.desc":
-		"Obsidian 注释（%% ... %%）不计入字数和字符数。",
-	"settings.ignoreTasks.name": "忽略任务",
-	"settings.ignoreTasks.desc":
-		'形如 “- [ ] buy milk” 的任务行完全不计入。无论此设置如何，复选框语法始终排除。更改此设置不会追溯更新历史记录。',
-	"settings.ignoreDeletedFiles.name": "忽略已删除的文件",
-	"settings.ignoreDeletedFiles.desc":
-		"删除文件不会从每日总计中扣除其字数和字符数。",
+	"settings.unitText.word.name": "字单位文字",
+	"settings.unitText.char.name": "字符单位文字",
+	"settings.unitText.desc": "单位样式设为文字时使用的自定义标签。留空则使用默认文字。",
+
+	// Goals
 	"settings.writingGoal.name": "写作目标",
 	"settings.writingGoal.desc": "你打算每天写作的字数。",
 	"settings.trackedFolders.name": "跟踪的文件夹",
@@ -51,15 +56,22 @@ export const zh: En = {
 
 	// Heatmaps
 	"settings.heatmapNavigation.name": "点击单元格打开对应的每日笔记",
+	"settings.heatmapNavigation.desc":
+		"关闭时，点击单元格仅打开当日的数据，不打开每日笔记。",
 	"settings.roundCells.name": "圆角单元格",
 	"settings.hideMonthLabels.name": "隐藏月份标签",
 	"settings.hideWeekdayLabels.name": "隐藏星期标签",
 	"settings.alignLeft.name": "热力图单元格左对齐",
+	"settings.alignLeft.desc":
+		"默认单元格靠右排列（最新日期在右侧），开启后改为靠左排列。",
 	"settings.startDate.name": "自定义开始日期",
 	"settings.startDate.desc": "让热力图从指定日期开始（例如一年的开始）。",
 	"settings.numberOfWeeks.name": "默认显示的周数",
+	"settings.numberOfWeeks.desc": "未设置自定义开始日期时，热力图默认显示的周数。",
 	"settings.cellSize.name": "单元格大小（像素）",
 	"settings.cellSize.desc": "每个热力图单元格的像素大小。",
+
+	// Heatmap Colors
 	"settings.coloringMode.name": "着色模式",
 	"settings.coloringMode.desc": "改变热力图单元格的填充方式。",
 	"settings.coloringMode.options.stops": "分段",
@@ -68,13 +80,6 @@ export const zh: En = {
 	"settings.coloringMode.options.liquid": "液态",
 	"settings.intensityThresholds.name": "强度阈值",
 	"settings.intensityThresholds.desc": "改变每个单元格颜色的计算方式。",
-	"settings.lightColors.name": "浅色主题颜色",
-	"settings.darkColors.name": "深色主题颜色",
-	"settings.themeColors.desc":
-		"用于填充每个单元格的颜色，取值范围随着色模式而变化。",
-	"settings.colorReset.confirm": "确定要将{0}主题的颜色重置为默认值吗？",
-	"settings.theme.light": "浅色",
-	"settings.theme.dark": "深色",
 	"settings.thresholds.solidInfo":
 		"当某天的字数达到写作目标（{0} 词）时，该天会被填充。阈值跟随“写作目标”设置。",
 	"settings.thresholds.solidWarn":
@@ -87,22 +92,27 @@ export const zh: En = {
 	"settings.thresholds.rangeHint":
 		"低于“低”（{0} 个字）的单元格不着色；高于“高”（{1} 个字）达到最强颜色。两者之间的天数按连续比例渐变。",
 	"settings.thresholds.words": "{0} 个字",
+	"settings.lightColors.name": "浅色主题颜色",
+	"settings.darkColors.name": "深色主题颜色",
+	"settings.themeColors.desc":
+		"用于填充每个单元格的颜色，取值范围随着色模式而变化。",
+	"settings.colorReset.confirm": "确定要将{0}主题的颜色重置为默认值吗？",
+	"settings.theme.light": "浅色",
+	"settings.theme.dark": "深色",
 
-	// Sidebar
+	// Interface
 	"settings.showOverview.name": "显示概览",
 	"settings.showOverview.desc": "在字数热力图中显示概览区域。",
 	"settings.showEntries.name": "显示今日条目",
 	"settings.showEntries.desc": "显示今天编辑了哪些文件及其对应的字数。",
 	"settings.showHeatmap.name": "显示热力图",
 	"settings.showHeatmap.desc": "显示历史写作数据的热力图。",
-
-	// Status bar
 	"settings.statusBar.name": "显示今日字数",
 	"settings.statusBar.desc":
 		"在状态栏显示今日总字数和每日目标。点击即可打开侧边栏。",
 	"statusBar.aria": "今日字数：{0} / {1}",
 
-	// Data storage
+	// Data
 	"settings.statsFile.name": "统计数据文件",
 	"settings.statsFile.desc":
 		"存储写作统计数据的库内相对路径（包含文件名）。留空则使用插件设置文件旁的默认位置。切换到已存在文件的路径会合并数据（每日数值取较大者）并删除旧文件。",
@@ -112,8 +122,6 @@ export const zh: En = {
 	"settings.storedHistory.name": "已存历史",
 	"settings.storedHistory.one": "已记录 {0} 天的写作历史。",
 	"settings.storedHistory.other": "已记录 {0} 天的写作历史。",
-
-	// Backup
 	"settings.automaticBackups.name": "自动备份",
 	"settings.automaticBackups.desc":
 		"为安全起见，禁用此项不会删除已有备份，需要你手动删除。",

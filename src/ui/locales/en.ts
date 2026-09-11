@@ -1,13 +1,27 @@
 export const en = {
 	// Groups
-	"group.general": "General",
+	"group.counting": "Counting",
+	"group.units": "Units",
+	"group.goals": "Goals & Scope",
 	"group.heatmaps": "Heatmaps",
-	"group.sidebar": "Sidebar",
-	"group.statusBar": "Status Bar",
-	"group.dataStorage": "Data Storage",
-	"group.backup": "Backup",
+	"group.colors": "Heatmap Colors",
+	"group.interface": "Interface",
+	"group.data": "Data",
 
-	// General
+	// Counting
+	"settings.enabledLanguages.name": "Enabled Languages",
+	"settings.enabledLanguages.desc": "Select which writing systems to count.",
+	"settings.ignoreComments.name": "Ignore Comments",
+	"settings.ignoreComments.desc":
+		"Obsidian comments (%% ... %%) are excluded from word and char counts.",
+	"settings.ignoreTasks.name": "Ignore Tasks",
+	"settings.ignoreTasks.desc":
+		'Task lines like "- [ ] buy milk" won\'t be counted at all. Checkbox syntax is always excluded regardless of this setting. Changing this won\'t retroactively update your history.',
+	"settings.ignoreDeletedFiles.name": "Ignore Deleted Files",
+	"settings.ignoreDeletedFiles.desc":
+		"Deleting a file won't subtract its words and characters from your daily totals.",
+
+	// Units
 	"settings.preferredUnit.name": "Preferred Unit",
 	"settings.preferredUnit.desc": "Default unit used when displaying counts.",
 	"settings.preferredUnit.options.word": "Words",
@@ -20,23 +34,14 @@ export const en = {
 	"settings.unitIcon.char.name": "Character Icon",
 	"settings.unitIcon.desc": "Icon used to represent a count unit when Unit Style is set to Icon.",
 	"settings.unitIcon.pick": "Choose icon",
-	"settings.unitText.word.name": "Word Text",
-	"settings.unitText.char.name": "Character Text",
-	"settings.unitText.desc": "Custom label for a count unit when Unit Style is set to Text. Leave empty for the default.",
 	"iconPicker.title": "Choose an icon",
 	"iconPicker.search": "Search icons...",
 	"iconPicker.empty": "No icons found",
-	"settings.enabledLanguages.name": "Enabled Languages",
-	"settings.enabledLanguages.desc": "Select which writing systems to count.",
-	"settings.ignoreComments.name": "Ignore Comments",
-	"settings.ignoreComments.desc":
-		"Obsidian comments (%% ... %%) are excluded from word and char counts.",
-	"settings.ignoreTasks.name": "Ignore Tasks",
-	"settings.ignoreTasks.desc":
-		'Task lines like "- [ ] buy milk" won\'t be counted at all. Checkbox syntax is always excluded regardless of this setting. Changing this won\'t retroactively update your history.',
-	"settings.ignoreDeletedFiles.name": "Ignore Deleted Files",
-	"settings.ignoreDeletedFiles.desc":
-		"Deleting a file won't subtract its words and characters from your daily totals.",
+	"settings.unitText.word.name": "Word Text",
+	"settings.unitText.char.name": "Character Text",
+	"settings.unitText.desc": "Custom label for a count unit when Unit Style is set to Text. Leave empty for the default.",
+
+	// Goals
 	"settings.writingGoal.name": "Writing Goal",
 	"settings.writingGoal.desc": "Amount of words you intend to write on a day.",
 	"settings.trackedFolders.name": "Tracked Folders",
@@ -50,16 +55,24 @@ export const en = {
 
 	// Heatmaps
 	"settings.heatmapNavigation.name": "Clicking a Cell Opens its Daily Note",
+	"settings.heatmapNavigation.desc":
+		"When off, clicking a cell only opens that day's data instead of its daily note.",
 	"settings.roundCells.name": "Rounded Cells",
 	"settings.hideMonthLabels.name": "Hide Month Labels",
 	"settings.hideWeekdayLabels.name": "Hide Weekday Labels",
 	"settings.alignLeft.name": "Align heatmap cells to the left",
+	"settings.alignLeft.desc":
+		"By default cells are right-aligned (newest date on the right); enable to align them left.",
 	"settings.startDate.name": "Custom Start Date",
 	"settings.startDate.desc":
 		"Makes the heatmap start from a specific date (like the start of the year).",
 	"settings.numberOfWeeks.name": "Default number of weeks displayed",
+	"settings.numberOfWeeks.desc":
+		"Number of weeks shown when no custom start date is set.",
 	"settings.cellSize.name": "Cell size (px)",
 	"settings.cellSize.desc": "Size of each heatmap cell in pixels.",
+
+	// Heatmap Colors
 	"settings.coloringMode.name": "Coloring Mode",
 	"settings.coloringMode.desc": "Changes how the heatmap cells are filled.",
 	"settings.coloringMode.options.stops": "Stops",
@@ -69,14 +82,6 @@ export const en = {
 	"settings.intensityThresholds.name": "Intensity thresholds",
 	"settings.intensityThresholds.desc":
 		"Changes how the color of each cell is calculated.",
-	"settings.lightColors.name": "Light Theme Colors",
-	"settings.darkColors.name": "Dark Theme Colors",
-	"settings.themeColors.desc":
-		"Colors used to paint each cell, ranges vary based on coloring mode.",
-	"settings.colorReset.confirm":
-		"Are you sure you want to reset the {0} theme colors to their default values?",
-	"settings.theme.light": "light",
-	"settings.theme.dark": "dark",
 	"settings.thresholds.solidInfo":
 		"Days are filled when their word count reaches your Writing Goal ({0} words). The threshold follows the Writing Goal setting.",
 	"settings.thresholds.solidWarn":
@@ -89,8 +94,16 @@ export const en = {
 	"settings.thresholds.rangeHint":
 		"Below Low ({0} words) cells stay uncolored; above High ({1} words) they reach full intensity. Days in between blend on a continuous scale.",
 	"settings.thresholds.words": "{0} words",
+	"settings.lightColors.name": "Light Theme Colors",
+	"settings.darkColors.name": "Dark Theme Colors",
+	"settings.themeColors.desc":
+		"Colors used to paint each cell, ranges vary based on coloring mode.",
+	"settings.colorReset.confirm":
+		"Are you sure you want to reset the {0} theme colors to their default values?",
+	"settings.theme.light": "light",
+	"settings.theme.dark": "dark",
 
-	// Sidebar
+	// Interface
 	"settings.showOverview.name": "Show overview",
 	"settings.showOverview.desc":
 		"Display the overview section in the word count heatmap.",
@@ -99,14 +112,12 @@ export const en = {
 		"Display which files were edited today and their respective word counts.",
 	"settings.showHeatmap.name": "Show heatmap",
 	"settings.showHeatmap.desc": "Displays a heatmap with historic writing data.",
-
-	// Status bar
 	"settings.statusBar.name": "Show today's word count",
 	"settings.statusBar.desc":
 		"Display today's total word count and your daily goal in the status bar. Click it to open the sidebar.",
 	"statusBar.aria": "Today's word count: {0} of {1}",
 
-	// Data storage
+	// Data
 	"settings.statsFile.name": "Stats Data File",
 	"settings.statsFile.desc":
 		"Vault-relative path (including the file name) where the writing statistics are stored. Leave empty for the default location next to the plugin's settings file. Switching to a path with an existing file merges it (larger daily values win) and removes the old file.",
@@ -116,8 +127,6 @@ export const en = {
 	"settings.storedHistory.name": "Stored History",
 	"settings.storedHistory.one": "{0} day of writing history on record.",
 	"settings.storedHistory.other": "{0} days of writing history on record.",
-
-	// Backup
 	"settings.automaticBackups.name": "Automatic Backups",
 	"settings.automaticBackups.desc":
 		"For safety, disabling this does not delete existing back-ups, you have to do it manually.",
