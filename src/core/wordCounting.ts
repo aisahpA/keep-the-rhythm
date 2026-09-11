@@ -110,7 +110,6 @@ export function getWordCount(
 	regex: RegExp,
 	options?: WordCountOptions,
 ): number {
-	if (!text?.trim()) return 0;
 
 	const cleaned = stripIgnoredContent(text, resolveOptions(options))
 		.replace(/\s+/gu, " ")
@@ -141,7 +140,17 @@ export function getCharCount(text: string, options?: WordCountOptions): number {
 	return stripIgnoredContent(text, resolveOptions(options)).length;
 }
 
+// Only one language combination exists at runtime, so a single slot is enough.
+let cachedLangsKey = "";
+let cachedRegex: RegExp | null = null;
+
 export function createRegex(langs: Language[]): RegExp {
+	const key = langs.join(",");
+	if (cachedRegex && key === cachedLangsKey) {
+		cachedRegex.lastIndex = 0;
+		return cachedRegex;
+	}
+
 	// Matched first so a URL or address is consumed whole rather than being
 	// split into several words by its punctuation.
 	const patterns: string[] = [URL_PATTERN, EMAIL_PATTERN];
@@ -171,11 +180,9 @@ export function createRegex(langs: Language[]): RegExp {
 		);
 	}
 
-	if (patterns.length === 0) {
-		return /(?!)/gu;
-	}
-
-	return new RegExp(patterns.join("|"), "gu");
+	cachedLangsKey = key;
+	cachedRegex = new RegExp(patterns.join("|"), "gu");
+	return cachedRegex;
 }
 
 export function getLanguageBasedWordCount(
