@@ -26,3 +26,8 @@ moment.default = stubMoment;
 export class Notice {
 	constructor(public message?: string) {}
 }
+
+/** Test runs are always English; i18n falls back to `en` anyway. */
+export function getLanguage(): string {
+	return "en";
+}

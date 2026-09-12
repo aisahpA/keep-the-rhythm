@@ -67,6 +67,7 @@ async function main() {
 	assert.strictEqual(await switchStatsFile(plugin, "notes/../stats.json"), false);
 	assert.strictEqual(await switchStatsFile(plugin, "/abs/stats.json"), false);
 	assert.strictEqual(await switchStatsFile(plugin, "notes\\stats.json"), false);
+	assert.strictEqual(await switchStatsFile(plugin, "C:/Users/x/stats.json"), false);
 	assert.strictEqual(await switchStatsFile(plugin, "notes/stats.txt"), false);
 	assert.strictEqual(getStatsFilePath(plugin), defaultPath);
 	assert.strictEqual(adapter.files.size, 0);
@@ -128,6 +129,21 @@ async function main() {
 		"other/stats.json",
 	);
 	assert.ok(adapter.files.has("other/stats.json"));
+
+	// ─── 4b. Valid JSON that isn't a stats file also blocks the switch ───
+	adapter.files.set("bad/wrong.json", JSON.stringify({ hello: "world" }));
+	adapter.files.set("bad/array.json", JSON.stringify([1, 2, 3]));
+	adapter.files.set("bad/null.json", JSON.stringify(null));
+	assert.strictEqual(await switchStatsFile(plugin, "bad/wrong.json"), false);
+	assert.strictEqual(await switchStatsFile(plugin, "bad/array.json"), false);
+	assert.strictEqual(await switchStatsFile(plugin, "bad/null.json"), false);
+	assert.strictEqual(
+		useStore.getState().settings.statsFileName,
+		"other/stats.json",
+	);
+	assert.ok(adapter.files.has("other/stats.json"));
+	assert.ok(adapter.files.has("bad/wrong.json")); // untouched
+	assert.deepStrictEqual(useStore.getState().days, daysBefore);
 
 	// ─── 5. Split save: settings → saveData (no stats), stats → adapter ───
 	await saveSettingsToDisk(plugin);

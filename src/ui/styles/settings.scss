@@ -129,6 +129,21 @@
 	}
 }
 
+.ktr__stats-file-input {
+	width: 100%;
+}
+
+.ktr__stats-file-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.ktr__stats-file-row.is-actions {
+	justify-content: flex-end;
+}
+
 .setting-item.ktr-first {
 	border-top: unset;
 }
