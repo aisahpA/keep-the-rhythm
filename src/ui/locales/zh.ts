@@ -114,14 +114,24 @@ export const zh: En = {
 
 	// Data
 	"settings.statsFile.name": "统计数据文件",
-	"settings.statsFile.desc":
-		"存储写作统计数据的库内相对路径（包含文件名）。留空则使用插件设置文件旁的默认位置。切换到已存在文件的路径会合并数据（每日数值取较大者）并删除旧文件。",
+	"settings.statsFile.desc": "存储写作统计数据的 JSON 文件。",
+	"settings.statsFile.current": "当前路径：{0}",
+	"settings.statsFile.change": "更改",
+	"settings.statsFile.modal.title": "设置统计数据文件",
+	"settings.statsFile.modal.desc":
+		"存储写作统计数据的库内相对路径。切换到已存在文件的路径会合并数据（每日数值取较大者）并删除旧文件。",
+	"settings.statsFile.modal.default": "恢复默认",
+	"settings.statsFile.modal.cancel": "取消",
+	"settings.statsFile.apply": "确认并应用",
+	"settings.statsFile.pickFolder": "选择文件夹",
+	"settings.statsFile.pickFile": "从仓库已有的 JSON 文件中选择",
+	"settings.statsFile.search.placeholder": "输入以搜索仓库内的 JSON 文件",
+	"settings.statsFile.search.empty": "未找到 JSON 文件",
 	"settings.notice.defaultFile": "KTR：正在使用默认数据文件位置。",
 	"settings.notice.fileSet": "KTR：数据文件已设置为 {0}。",
-	"settings.confirmPath": "确认路径",
 	"settings.storedHistory.name": "已存历史",
-	"settings.storedHistory.one": "已记录 {0} 天的写作历史。",
-	"settings.storedHistory.other": "已记录 {0} 天的写作历史。",
+	"settings.storedHistory.one": "已记录 {0} 天的写作历史，共 {1} 条记录。",
+	"settings.storedHistory.other": "已记录 {0} 天的写作历史，共 {1} 条记录。",
 	"settings.automaticBackups.name": "自动备份",
 	"settings.automaticBackups.desc":
 		"为安全起见，禁用此项不会删除已有备份，需要你手动删除。",
@@ -131,6 +141,15 @@ export const zh: En = {
 	"settings.backupRetained.desc":
 		"保留多少天的备份（每天一份，在当天首次启动时创建）。更早的备份将被自动删除。",
 	"settings.backupRetained.validate": "必须是大于 0 的整数。",
+
+	// Persistence notices
+	"persistence.writeFailed": "KTR：写入统计数据文件失败，详见控制台。",
+	"persistence.invalidPath":
+		"KTR：数据文件路径无效，请使用库内相对路径且以 .json 结尾。",
+	"persistence.unreadableTarget": "KTR：目标路径已存在的文件无法读取。",
+	"persistence.wrongFormat":
+		"KTR：该文件已存在，但不是统计数据文件，已拒绝覆盖。",
+	"persistence.switchFailed": "KTR：切换数据文件失败，详见控制台。",
 
 	// Language picker
 	"languagePicker.title": "要统计的语言",

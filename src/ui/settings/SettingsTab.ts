@@ -6,7 +6,8 @@ import {
   SettingDefinitionItem,
   FuzzySuggestModal,
   TFolder,
-  TextComponent,
+  TFile,
+  Modal,
   Notice,
 } from "obsidian";
 import { Settings, HeatmapColorModes, Unit, UnitDisplay } from "@/defs/types";
@@ -363,30 +364,25 @@ export class SettingsTab extends PluginSettingTab {
         items: [
           {
             name: t("settings.statsFile.name"),
-            desc: t("settings.statsFile.desc"),
+            desc: (() => {
+              const current =
+                this.settings.statsFileName || defaultStatsFilePath(this.plugin);
+              const frag = createFragment();
+              frag.createDiv({ text: t("settings.statsFile.desc") });
+              frag.createDiv({
+                cls: "mod-muted",
+                text: t("settings.statsFile.current", current),
+              });
+              return frag;
+            })(),
             render: (setting: Setting) => {
-              let text: TextComponent;
-              const confirm = async () => {
-                const value = text.getValue().trim();
-                if (await switchStatsFile(this.plugin, value)) {
-                  new Notice(
-                    value === ""
-                      ? t("settings.notice.defaultFile")
-                      : t("settings.notice.fileSet", value),
-                  );
-                  this.update();
-                }
-              };
-              setting.addText((textComp) => {
-                text = textComp;
-                textComp.setPlaceholder(defaultStatsFilePath(this.plugin));
-                textComp.setValue(this.settings.statsFileName || "");
-              }).addExtraButton((btn) => {
+              setting.addButton((btn) => {
                 btn
-                  .setIcon("check")
-                  .setTooltip(t("settings.confirmPath"))
+                  .setButtonText(t("settings.statsFile.change"))
                   .onClick(() => {
-                    void confirm();
+                    new StatsFileModal(this.app, this.plugin, () =>
+                      this.update(),
+                    ).open();
                   });
               });
             },
@@ -394,13 +390,19 @@ export class SettingsTab extends PluginSettingTab {
           {
             name: t("settings.storedHistory.name"),
             render: (setting: Setting) => {
-              const days = Object.keys(useStore.getState().days).length;
+              const days = useStore.getState().days;
+              const dayCount = Object.keys(days).length;
+              const recordCount = Object.values(days).reduce(
+                (sum, day) => sum + Object.keys(day).length,
+                0,
+              );
               setting.setDesc(
                 t(
-                  days === 1
+                  dayCount === 1
                     ? "settings.storedHistory.one"
                     : "settings.storedHistory.other",
-                  days,
+                  dayCount,
+                  recordCount,
                 ),
               );
             },
@@ -471,6 +473,128 @@ export class SettingsTab extends PluginSettingTab {
 
 }
 
+
+// Panel for changing the stats data file path. Built from plain DOM elements
+// only — no Setting / TextComponent — because those components are thenable
+// (`Setting.then`) and interacting with them inside a modal opened from the
+// declarative settings tab can wedge Obsidian. Plain input + buttons keep the
+// whole flow synchronous and predictable.
+class StatsFileModal extends Modal {
+  constructor(
+    app: App,
+    private plugin: Plugin,
+    private onApply: () => void,
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: t("settings.statsFile.modal.title") });
+    contentEl.createEl("p", {
+      cls: "mod-muted",
+      text: t("settings.statsFile.modal.desc"),
+    });
+
+    const input = contentEl.createEl("input", {
+      type: "text",
+      cls: "ktr__stats-file-input",
+    });
+    input.placeholder = defaultStatsFilePath(this.plugin);
+    input.value = useStore.getState().settings.statsFileName || "";
+
+    const submit = async () => {
+      const value = input.value.trim();
+      if (!(await switchStatsFile(this.plugin, value))) return;
+      new Notice(
+        value === ""
+          ? t("settings.notice.defaultFile")
+          : t("settings.notice.fileSet", value),
+      );
+      this.close();
+      this.onApply();
+    };
+
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") void submit();
+    });
+
+    const pickers = contentEl.createDiv({ cls: "ktr__stats-file-row" });
+    pickers
+      .createEl("button", { text: t("settings.statsFile.pickFolder") })
+      .addEventListener("click", () => {
+        const current =
+          input.value.trim() || defaultStatsFilePath(this.plugin);
+        const name = current.substring(current.lastIndexOf("/") + 1);
+        new FolderSuggestModal(
+          this.app,
+          () => false,
+          (folder) => {
+            input.value = `${folder}${name}`;
+          },
+        ).open();
+      });
+    pickers
+      .createEl("button", { text: t("settings.statsFile.pickFile") })
+      .addEventListener("click", () => {
+        new StatsFileSuggestModal(this.app, (file) => {
+          input.value = file.path;
+        }).open();
+      });
+    pickers
+      .createEl("button", { text: t("settings.statsFile.modal.default") })
+      .addEventListener("click", () => {
+        input.value = "";
+      });
+
+    const actions = contentEl.createDiv({
+      cls: "ktr__stats-file-row is-actions",
+    });
+    actions
+      .createEl("button", { text: t("settings.statsFile.modal.cancel") })
+      .addEventListener("click", () => this.close());
+    actions
+      .createEl("button", {
+        text: t("settings.statsFile.apply"),
+        cls: "mod-cta",
+      })
+      .addEventListener("click", () => void submit());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+// Fuzzy picker over every JSON file already in the vault. Lets a device that
+// joins an existing sync setup point straight at the stats file another device
+// created, instead of typing its path by hand.
+class StatsFileSuggestModal extends FuzzySuggestModal<TFile> {
+  constructor(
+    app: App,
+    private onSelect: (file: TFile) => void,
+  ) {
+    super(app);
+    this.setPlaceholder(t("settings.statsFile.search.placeholder"));
+    this.limit = 50;
+    this.emptyStateText = t("settings.statsFile.search.empty");
+  }
+
+  getItems(): TFile[] {
+    return this.app.vault
+      .getFiles()
+      .filter((f) => f.extension === "json")
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  getItemText(file: TFile): string {
+    return file.path;
+  }
+
+  onChooseItem(file: TFile): void {
+    this.onSelect(file);
+  }
+}
 
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	constructor(

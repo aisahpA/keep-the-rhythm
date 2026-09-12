@@ -4,6 +4,7 @@ import { PluginData, Settings, StatsFileData } from "@/defs/types";
 import { useStore } from "./store";
 import { encodePersistedStats } from "./statsCodec";
 import { mergeExternalStats } from "./externalSync";
+import { t } from "@/ui/i18n";
 
 const JSON_SCHEMA = "1.0";
 const JSON_DEBOUNCE_TIME = 2000;
@@ -106,7 +107,7 @@ export async function saveStatsToDisk(plugin: Plugin): Promise<void> {
 		await plugin.app.vault.adapter.write(path, JSON.stringify(data));
 	} catch (err) {
 		console.error("KTR: can't write stats data file:", err);
-		new Notice("Ktr: failed to write the stats data file — see console.");
+		new Notice(t("persistence.writeFailed"));
 		return;
 	}
 	lastStatsMtime = await statsFileMtime(plugin, path);
@@ -185,13 +186,27 @@ async function saveDataToDisk(plugin: Plugin) {
 // ─── Stats file location switch ───
 
 /**
+ * Structural check that a parsed JSON value is a stats data file (the shape
+ * `prepareStatsData` writes): a plain object whose `stats` is a plain object.
+ * A valid-but-empty stats object passes; anything else at the target path is
+ * some unrelated JSON file, so the switch must refuse rather than overwrite it.
+ */
+function isStatsFileData(value: unknown): value is StatsFileData {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const stats = (value as { stats?: unknown }).stats;
+	return typeof stats === "object" && stats !== null && !Array.isArray(stats);
+}
+
+/**
  * Move the stats data file to `newPath` (vault-relative, including the
  * file name); an empty path resets to the default location next to
  * data.json.  The store is the source of truth, so the switch writes the
  * current in-memory data to the target and removes the old file; if the
  * target already exists it is parsed and row-merged into the store first
  * (same max-wins rule as external sync), so nothing is lost either way.
- * An unreadable target still blocks the switch.
+ * An unreadable OR wrong-format target still blocks the switch.
  * @returns true on success (including "already using newPath").
  */
 export async function switchStatsFile(
@@ -205,11 +220,10 @@ export async function switchStatsFile(
 		!target.endsWith(".json") ||
 		target.startsWith("/") ||
 		target.includes("\\") ||
+		/^[a-zA-Z]:/.test(target) ||
 		target.split("/").includes("..")
 	) {
-		new Notice(
-			"Ktr: invalid data file path — use a vault-relative .json path.",
-		);
+		new Notice(t("persistence.invalidPath"));
 		return false;
 	}
 
@@ -219,18 +233,19 @@ export async function switchStatsFile(
 	try {
 		const adapter = plugin.app.vault.adapter;
 		if (await adapter.exists(target)) {
+			let parsed: unknown;
 			try {
-				const parsed = JSON.parse(
-					await adapter.read(target),
-				) as StatsFileData;
-				await mergeExternalStats(parsed?.stats);
+				parsed = JSON.parse(await adapter.read(target));
 			} catch (err) {
 				console.error("KTR: can't adopt existing data file:", err);
-				new Notice(
-					"Ktr: existing file at the target path could not be read.",
-				);
+				new Notice(t("persistence.unreadableTarget"));
 				return false;
 			}
+			if (!isStatsFileData(parsed)) {
+				new Notice(t("persistence.wrongFormat"));
+				return false;
+			}
+			await mergeExternalStats(parsed.stats);
 		}
 
 		await ensureParentFolder(plugin, target);
@@ -241,19 +256,16 @@ export async function switchStatsFile(
 		lastStatsMtime = await statsFileMtime(plugin, target);
 	} catch (err) {
 		console.error("KTR: can't switch data file location:", err);
-		new Notice("Ktr: failed to switch the data file — see console.");
+		new Notice(t("persistence.switchFailed"));
 		return false;
 	}
 
-	// Persist the new location (settings live in data.json).
+	// Persist the new location (settings live in data.json). The success
+	// notice is surfaced by the caller (the settings modal) in the user's
+	// language.
 	useStore.getState().mutateSettings((draft) => {
 		draft.statsFileName = targetPath;
 	});
-	new Notice(
-		targetPath === ""
-			? "Ktr: data file reset to the default location."
-			: `KTR: data file moved to ${targetPath}.`,
-	);
 	return true;
 }
 
