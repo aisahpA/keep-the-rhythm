@@ -120,8 +120,8 @@ export const zh: En = {
 	"settings.notice.fileSet": "KTR：数据文件已设置为 {0}。",
 	"settings.confirmPath": "确认路径",
 	"settings.storedHistory.name": "已存历史",
-	"settings.storedHistory.one": "已记录 {0} 天的写作历史。",
-	"settings.storedHistory.other": "已记录 {0} 天的写作历史。",
+	"settings.storedHistory.one": "已记录 {0} 天的写作历史，共 {1} 条记录。",
+	"settings.storedHistory.other": "已记录 {0} 天的写作历史，共 {1} 条记录。",
 	"settings.automaticBackups.name": "自动备份",
 	"settings.automaticBackups.desc":
 		"为安全起见，禁用此项不会删除已有备份，需要你手动删除。",

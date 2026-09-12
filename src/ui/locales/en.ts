@@ -125,8 +125,8 @@ export const en = {
 	"settings.notice.fileSet": "KTR: data file set to {0}.",
 	"settings.confirmPath": "Confirm path",
 	"settings.storedHistory.name": "Stored History",
-	"settings.storedHistory.one": "{0} day of writing history on record.",
-	"settings.storedHistory.other": "{0} days of writing history on record.",
+	"settings.storedHistory.one": "{0} day of writing history on record, {1} entries.",
+	"settings.storedHistory.other": "{0} days of writing history on record, {1} entries.",
 	"settings.automaticBackups.name": "Automatic Backups",
 	"settings.automaticBackups.desc":
 		"For safety, disabling this does not delete existing back-ups, you have to do it manually.",

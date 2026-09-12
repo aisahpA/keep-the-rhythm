@@ -394,13 +394,19 @@ export class SettingsTab extends PluginSettingTab {
           {
             name: t("settings.storedHistory.name"),
             render: (setting: Setting) => {
-              const days = Object.keys(useStore.getState().days).length;
+              const days = useStore.getState().days;
+              const dayCount = Object.keys(days).length;
+              const recordCount = Object.values(days).reduce(
+                (sum, day) => sum + Object.keys(day).length,
+                0,
+              );
               setting.setDesc(
                 t(
-                  days === 1
+                  dayCount === 1
                     ? "settings.storedHistory.one"
                     : "settings.storedHistory.other",
-                  days,
+                  dayCount,
+                  recordCount,
                 ),
               );
             },
