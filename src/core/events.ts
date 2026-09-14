@@ -7,7 +7,7 @@ import {
 	debounce,
 	type MarkdownFileInfo,
 } from "obsidian";
-import { getCountsFromContent } from "@/core/baselines";
+import { countWordsAndChars } from "@/core/wordCounting";
 import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
 import { computeLiveDelta, isFileLive } from "@/core/baselines";
 import { getPlugin } from "./pluginRegistry";
@@ -101,7 +101,7 @@ async function runPendingEditorChange(
 
 	try {
 		const cur = store();
-		const newCounts = getCountsFromContent(editor.getValue());
+		const newCounts = countWordsAndChars(editor.getValue());
 
 		const delta = computeLiveDelta(filePath, newCounts);
 		if (delta === undefined) return;

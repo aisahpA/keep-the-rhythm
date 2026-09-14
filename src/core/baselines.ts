@@ -1,5 +1,5 @@
 import { TFile, MarkdownView } from "obsidian";
-import { getLanguageBasedWordCount, getCharCount } from "@/core/wordCounting";
+import { countWordsAndChars } from "@/core/wordCounting";
 import { getPlugin } from "@/core/pluginRegistry";
 import { useStore } from "./store";
 import { ActivityCounts } from "@/defs/types";
@@ -55,20 +55,7 @@ export async function getCountsForFile(file: TFile): Promise<ActivityCounts> {
 	if (!content) {
 		content = await plugin.app.vault.read(file);
 	}
-	return getCountsFromContent(content);
-}
-
-/** Word + char counts for a content string, honoring ignore settings. */
-export function getCountsFromContent(content: string): ActivityCounts {
-	const settings = useStore.getState().settings;
-	return {
-		w: getLanguageBasedWordCount(
-			content,
-			settings.enabledLanguages,
-			settings,
-		),
-		c: getCharCount(content, settings),
-	};
+	return countWordsAndChars(content);
 }
 
 /**
@@ -85,7 +72,7 @@ export async function getCurrentCountsLive(file: TFile): Promise<ActivityCounts>
 			leaf.view.file?.path === file.path &&
 			leaf.view.editor
 		) {
-			return getCountsFromContent(leaf.view.editor.getValue());
+			return countWordsAndChars(leaf.view.editor.getValue());
 		}
 	}
 	return getCountsForFile(file);
