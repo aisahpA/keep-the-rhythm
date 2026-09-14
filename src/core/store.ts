@@ -251,23 +251,57 @@ export const useStore = create<KTRState>()(
 
 			cur.activeFiles.add(newPath);
 
-			const renameInPlace = (m: DayActivityMap): boolean => {
-				if (!(oldPath in m)) return false;
-				m[newPath] = m[oldPath];
+			// A rename reaches other devices through TWO independent channels:
+			// the vault's rename event (this handler) and the stats-data merge
+			// (which sees only `(date, path)` keys and cannot tell that the two
+			// paths are the same file).  When the merge lands first, the store
+			// briefly holds BOTH paths' rows for the same day, so a plain
+			// `m[newPath] = m[oldPath]` would let the local old-path value eat
+			// the row that just arrived from the other device.  Reconcile with
+			// the SAME whole-row rule as mergeExternalStats instead: keep the
+			// target row unless the old-path row dominates both counters, ties
+			// to the target — this makes the outcome order-independent.
+			const moveRow = (m: DayActivityMap): "none" | "kept" | "replaced" => {
+				const from = m[oldPath];
+				if (from === undefined) return "none";
+				const to = m[newPath];
+				const kept = to !== undefined && to.w >= from.w && to.c >= from.c;
+				if (!kept) m[newPath] = from;
 				delete m[oldPath];
-				return true;
+				return kept ? "kept" : "replaced";
 			};
 
 			let todayChanged = false;
+			let todayOutcome: "none" | "kept" | "replaced" = "none";
 			let historicalChanged = false;
 			for (const [date, day] of Object.entries(cur.days)) {
-				if (renameInPlace(day)) {
-					if (date === cur.today) todayChanged = true;
-					else historicalChanged = true;
+				const outcome = moveRow(day);
+				if (outcome === "none") continue;
+				if (date === cur.today) {
+					todayChanged = true;
+					todayOutcome = outcome;
+				} else {
+					historicalChanged = true;
 				}
 			}
 
-			renameInPlace(cur.todayBaselines); // only today has baselines
+			// Today's baseline must follow the row that won — the same pairing
+			// mergeExternalStats maintains, since live deltas are
+			// `editorCount - baseline`.  A baseline with no row still moves,
+			// and a missing target baseline is backfilled from the old one.
+			const fromBaseline = cur.todayBaselines[oldPath];
+			if (fromBaseline !== undefined) {
+				// The target keeps its own baseline only when its row won AND
+				// it actually has one; otherwise the old one travels over.
+				const targetKeepsOwn =
+					todayOutcome !== "replaced" &&
+					cur.todayBaselines[newPath] !== undefined;
+				if (!targetKeepsOwn) {
+					cur.todayBaselines[newPath] = fromBaseline;
+				}
+				delete cur.todayBaselines[oldPath];
+				todayChanged = true;
+			}
 
 			set({
 				...(todayChanged

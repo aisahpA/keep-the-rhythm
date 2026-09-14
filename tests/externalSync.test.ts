@@ -38,7 +38,61 @@ async function main() {
 		"2026-09-02": { "b.md": { w: 7, c: 1 } },
 	});
 
-	// ─── 3. Settings merge: external overwrites, normalized with defaults ───
+	// ─── 3. TODAY's local-only row survives an external file that lacks it:
+	// transient sync states (delete-then-re-add, rolled-back replays) must
+	// not delete the one day still being written — and the kept row must
+	// bring its baseline along, or the next editorCount - baseline is wrong. ───
+	useStore.setState({
+		today: "2026-09-08",
+		days: {
+			"2026-09-08": { "c.md": { w: 9, c: 9 } },
+			"2026-09-01": { "a.md": { w: 10, c: 5 } },
+		},
+		todayBaselines: { "c.md": { w: 100, c: 100 } },
+		todayBaselinesDay: "2026-09-08",
+	});
+	await mergeExternalStats({
+		fileDict: { "a.md": 0, "b.md": 1 },
+		days: {
+			"2026-09-08": { "1": { w: 4, c: 4 } }, // b.md, new row
+			"2026-09-01": { "0": { w: 10, c: 5 } },
+		},
+	} as PersistedStats);
+	assert.deepStrictEqual(useStore.getState().days, {
+		"2026-09-08": { "c.md": { w: 9, c: 9 }, "b.md": { w: 4, c: 4 } },
+		"2026-09-01": { "a.md": { w: 10, c: 5 } },
+	});
+	assert.deepStrictEqual(
+		useStore.getState().todayBaselines,
+		{ "c.md": { w: 100, c: 100 } },
+		"a kept local-only row must keep its local baseline",
+	);
+
+	// ─── 4. A rolled-back (older) external file has no deletion authority:
+	// its rows merge, but its missing rows must not delete anything. ───
+	useStore.setState({
+		today: "2026-09-08",
+		days: {
+			"2026-09-08": { "c.md": { w: 9, c: 9 } },
+			"2026-09-01": { "a.md": { w: 10, c: 5 } },
+		},
+		todayBaselines: { "c.md": { w: 100, c: 100 } },
+		todayBaselinesDay: "2026-09-08",
+	});
+	await mergeExternalStats(
+		{
+			fileDict: { "b.md": 0 },
+			days: { "2026-09-02": { "0": { w: 7, c: 1 } } },
+		} as PersistedStats,
+		{ allowDeletions: false },
+	);
+	assert.deepStrictEqual(useStore.getState().days, {
+		"2026-09-08": { "c.md": { w: 9, c: 9 } },
+		"2026-09-01": { "a.md": { w: 10, c: 5 } },
+		"2026-09-02": { "b.md": { w: 7, c: 1 } },
+	});
+
+	// ─── 5. Settings merge: external overwrites, normalized with defaults ───
 	await mergeExternalSettings({
 		settings: { dailyWritingGoal: 250 },
 	} as unknown as PluginData);

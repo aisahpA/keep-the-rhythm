@@ -5,6 +5,8 @@ const tests = [
 	"tests/wordCounting.test.ts",
 	"tests/externalSync.test.ts",
 	"tests/statsFile.test.ts",
+	"tests/events.test.ts",
+	"tests/rename.test.ts",
 ];
 
 for (const entry of tests) {

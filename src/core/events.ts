@@ -10,6 +10,7 @@ import {
 import { getCountsFromContent } from "@/core/baselines";
 import { getExistingOrCreateNewEntry } from "@/core/dataQueries";
 import { computeLiveDelta, isFileLive } from "@/core/baselines";
+import { getPlugin } from "./pluginRegistry";
 import { isPathTracked } from "./pathFilter";
 
 // Per-file-path guard — prevents re-entrant activity creation for the
@@ -128,19 +129,59 @@ async function runPendingEditorChange(
 	}
 }
 
-export function handleFileDelete(file: TFile) {
-	if (!isMarkdown(file) || !isPathTracked(file.path)) {
-		return;
-	}
+/* ─────────────────────────────────────────────────────────────────────────
+ * Delete confirmation — a `delete` event is NOT proof that the file is gone.
+ *
+ * Sync clients (Nutstore, iCloud, Dropbox …) and some editors implement
+ * "replace" as delete-then-recreate, and OS-level eviction on mobile can
+ * empty a vault entry transiently.  Acting on the raw event would drop
+ * today's row AND its baseline, and the 2s persistence debounce would then
+ * write that drop to disk — a transient delete turning into permanent loss
+ * of the file's accumulated words for the day.  So the vault is asked once
+ * more, after a short grace period, whether the file really is gone.
+ *
+ * No create/rename listener is needed: this single existence check is the
+ * source of truth, and a re-created file is simply still (or again) present.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const DELETE_CONFIRM_MS = 2000;
+
+/**
+ * filePath → pending confirmation timer.  A repeated delete event for the
+ * same path keeps the first timer: only the file's final state matters, so
+ * the deadline never needs to be pushed back.
+ */
+const pendingDeletes = new Map<string, number>();
+
+function confirmDelete(filePath: string) {
 	try {
 		const st = store();
 		// When "ignore deleted files" is on, deleting a file must not
 		// subtract its words/chars from the day's totals — the row is kept.
+		// Checked at confirmation time so a setting toggled during the grace
+		// period is honoured.
 		if (st.settings.ignoreDeletedFiles) return;
-		st.deleteActivity(st.today, file.path);
+		// Re-created in the meantime (sync delete-then-add, editor move,
+		// iCloud eviction) — the row and baseline must survive.
+		if (getPlugin().app.vault.getAbstractFileByPath(filePath)) return;
+		st.deleteActivity(st.today, filePath);
 	} catch (error) {
-		console.error("KTR failed deleting", file.path, error);
+		console.error("KTR failed deleting", filePath, error);
 	}
+}
+
+export function handleFileDelete(file: TFile) {
+	if (!isMarkdown(file) || !isPathTracked(file.path)) {
+		return;
+	}
+	if (pendingDeletes.has(file.path)) return;
+	pendingDeletes.set(
+		file.path,
+		window.setTimeout(() => {
+			pendingDeletes.delete(file.path);
+			confirmDelete(file.path);
+		}, DELETE_CONFIRM_MS),
+	);
 }
 
 export function handleFileRename(file: TFile, oldPath: string) {

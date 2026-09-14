@@ -22,11 +22,29 @@ import { Notice } from "obsidian";
  *   5. 一次性 setState 替换数据
  *   6. requestPersist
  *
+ * "行缺失"的删除语义(见 StatsMergeOptions.allowDeletions):
+ *   - 今天:对方缺行**从不**删除本地行。临时同步状态(客户端先删后加、
+ *     回滚重放旧版本、部分写入)很容易缺行,而今天正是唯一还在写的
+ *     数据,误删无法补救;真正的删除不依赖这里 —— 笔记文件被删会作为
+ *     vault delete 事件在每台设备上各自传播(events.handleFileDelete),
+ *     各设备自己删自己的行。
+ *   - 历史天:外部文件比本地已见的最新状态**更新**时才允许用缺行表达删除;
+ *     更旧的文件(同步客户端回放旧版本)只能参与 max 合并,没有删除权。
+ *
  * 不需要手动作废"当前打开文件":ensureActivityExists 的守卫直接由
  * days[today] 行 + baseline 是否存在推导,外部删除行 / baseline 后,
  * 下一次触碰自然重建。游标状态(如 getCurrentCount 的 query cursor)
  * 不受行删除影响,旧的会自然过期。
  */
+
+export interface StatsMergeOptions {
+	/**
+	 * 是否允许外部文件用"行缺失"表达删除(默认 true,保持既有语义)。
+	 * 外部文件比本地已见的最新状态更旧时传 false:它的缺行没有删除权。
+	 */
+	allowDeletions?: boolean;
+}
+
 
 export async function mergeExternalSettings(
 	data: PluginData | null,
@@ -42,6 +60,7 @@ export async function mergeExternalSettings(
 
 export async function mergeExternalStats(
 	stats: PersistedStats | undefined,
+	{ allowDeletions = true }: StatsMergeOptions = {},
 ): Promise<void> {
 	try {
 		const cur = useStore.getState();
@@ -68,23 +87,47 @@ export async function mergeExternalStats(
 			return;
 		}
 
-		// 2. 行级合并 days —— 同 key 取新增字数大者,本地独有行丢弃
-		//    (尊重外部删除)。今天的赢家是谁单独记录,用于联动 baseline。
+		// 2. 行级合并 days —— 同 key 取新增字数大者。外部缺行是否等于删除
+		//    由 keepLocalOnlyRows 决定(今天永远保守;更旧的外部文件对所有
+		//    日期都保守),见模块头。今天的赢家是谁单独记录,用于联动
+		//    baseline —— 被保留下来的本地独有行也算本地赢,否则它的
+		//    baseline 会在第 3 步被丢掉。
 		const mergedDays: DaysMap = {};
 		const localWonToday: Record<string, boolean> = {};
-		for (const [date, extDay] of Object.entries(ext.days)) {
+		const dates = new Set([
+			...Object.keys(cur.days),
+			...Object.keys(ext.days),
+		]);
+		for (const date of dates) {
 			const localDay = cur.days[date];
+			const extDay = ext.days[date];
+			const keepLocalOnlyRows = date === today || !allowDeletions;
 			const mergedDay: DayActivityMap = {};
-			for (const [filePath, extAdded] of Object.entries(extDay)) {
+			const paths = new Set([
+				...Object.keys(localDay ?? {}),
+				...Object.keys(extDay ?? {}),
+			]);
+			for (const filePath of paths) {
 				const localAdded = localDay?.[filePath];
+				const extAdded = extDay?.[filePath];
+				if (extAdded === undefined) {
+					// 本地独有行:只有保守模式下才留下(否则视为外部删除)。
+					if (localAdded !== undefined && keepLocalOnlyRows) {
+						mergedDay[filePath] = localAdded;
+						if (date === today) localWonToday[filePath] = true;
+					}
+					continue;
+				}
 				const localWon =
 					localAdded !== undefined &&
-					(localAdded.w >= extAdded.w &&
-						localAdded.c >= extAdded.c);
+					localAdded.w >= extAdded.w &&
+					localAdded.c >= extAdded.c;
 				mergedDay[filePath] = localWon ? localAdded : extAdded;
 				if (date === today) localWonToday[filePath] = localWon;
 			}
-			mergedDays[date] = mergedDay;
+			if (Object.keys(mergedDay).length > 0) {
+				mergedDays[date] = mergedDay;
+			}
 		}
 
 		// 3. 联动合并当天 baseline

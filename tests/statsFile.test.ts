@@ -6,6 +6,7 @@ import {
 	switchStatsFile,
 	saveSettingsToDisk,
 	saveStatsToDisk,
+	checkExternalStatsFile,
 } from "@/core/dataPersistence";
 import type { Plugin } from "obsidian";
 
@@ -154,6 +155,45 @@ async function main() {
 	const statsWritten = JSON.parse(adapter.files.get("other/stats.json")!);
 	assert.ok(statsWritten.stats);
 	assert.strictEqual(plugin.saved.schema, statsWritten.schema);
+
+	// ─── 6. External pickup: a rolled-back (OLDER) delivery has no deletion
+	// authority — only a genuine newer state from another device may drop
+	// local rows by omitting them. ───
+	const CURRENT = "other/stats.json";
+	const rolledBack = JSON.stringify({
+		schema: "1.0",
+		stats: {
+			fileDict: { "a.md": 0 },
+			days: { "2026-09-01": { "0": { w: 10, c: 5 } } },
+		},
+	});
+	useStore.setState({
+		today: "2026-09-08",
+		days: {
+			"2026-09-01": { "a.md": { w: 10, c: 5 } },
+			"2026-09-02": { "b.md": { w: 7, c: 1 } },
+		},
+		historicalVersion: useStore.getState().historicalVersion + 1,
+	});
+	await saveStatsToDisk(plugin); // our write = the newest state seen
+	const ourMtime = adapter.mtimes.get(CURRENT)!;
+
+	adapter.files.set(CURRENT, rolledBack);
+	adapter.mtimes.set(CURRENT, ourMtime - 1); // stale re-add
+	await checkExternalStatsFile(plugin);
+	assert.deepStrictEqual(
+		useStore.getState().days["2026-09-02"],
+		{ "b.md": { w: 7, c: 1 } },
+		"an older external file must not delete local rows",
+	);
+
+	adapter.mtimes.set(CURRENT, ourMtime + 10); // newer state, same content
+	await checkExternalStatsFile(plugin);
+	assert.strictEqual(
+		useStore.getState().days["2026-09-02"],
+		undefined,
+		"a newer external file still propagates deletions",
+	);
 
 	console.log("statsFile tests passed");
 }

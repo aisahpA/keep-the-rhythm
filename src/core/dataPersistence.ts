@@ -117,6 +117,14 @@ export async function saveStatsToDisk(plugin: Plugin): Promise<void> {
  * Pick up an externally replaced stats file (multi-device sync). A stat()
  * whose mtime differs from the cached value means the file changed behind
  * our back: read it and row-merge it into the store. No-op otherwise.
+ *
+ * A file OLDER than the newest state we have seen is a rolled-back delivery
+ * (a sync client replaying / restoring an earlier version — e.g. Nutstore's
+ * delete-then-re-add), not newer progress from another device: its rows
+ * still merge max-wins, but its MISSING rows must not delete local ones.
+ * Genuine deletions from another device always carry a newer mtime, and
+ * genuine file deletions reach every device as vault delete events anyway
+ * (see events.handleFileDelete).
  */
 export async function checkExternalStatsFile(plugin: Plugin): Promise<void> {
 	const path = getStatsFilePath(plugin);
@@ -129,9 +137,10 @@ export async function checkExternalStatsFile(plugin: Plugin): Promise<void> {
 		return; // unreadable — keep what we have
 	}
 	if (mtime === lastStatsMtime) return;
+	const allowDeletions = mtime > lastStatsMtime;
 	lastStatsMtime = mtime;
 	const data = await readStatsFile(plugin);
-	if (data) await mergeExternalStats(data.stats);
+	if (data) await mergeExternalStats(data.stats, { allowDeletions });
 }
 
 // ─── Persisted payload assembly ───
